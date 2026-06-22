@@ -14,14 +14,10 @@ export const useLogin = () => {
       setAuth(data.data)
       const roles = data.data.roles || []
       toast.success('Welcome back!')
-      // for test
-      console.log(data.data)
-      console.log(data.data.roles)
+      
 
       // Navigate based on role from API response directly (store may not be updated yet)
-      if (roles.includes('super_admin')) {
-        navigate('/master/dashboard', { replace: true })
-      } else if (roles.includes('student') || roles.includes('parent')) {
+      if (roles.includes('student') || roles.includes('parent')) {
         navigate('/student', { replace: true })
       } else {
         navigate('/dashboard', { replace: true })
