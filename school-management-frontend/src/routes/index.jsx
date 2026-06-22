@@ -49,7 +49,7 @@ const AuthGuard = () => {
 const GuestGuard = () => {
   const token = useAuthStore(s => s.accessToken)
   const roles = useAuthStore(s => s.roles)
-  // if (!token) return <Outlet />
+  if (!token) return <Outlet />
   // if (roles.includes('super_admin'))                         return <Navigate to="/master/dashboard" replace />
   // if (roles.includes('student') || roles.includes('parent')) return <Navigate to="/student" replace />
   // return <Navigate to="/dashboard" replace />
