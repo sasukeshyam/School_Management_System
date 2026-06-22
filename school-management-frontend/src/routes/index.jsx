@@ -49,15 +49,21 @@ const AuthGuard = () => {
 const GuestGuard = () => {
   const token = useAuthStore(s => s.accessToken)
   const roles = useAuthStore(s => s.roles)
+  // if (!token) return <Outlet />
+  // // if (roles.includes('super_admin'))                         return <Navigate to="/master/dashboard" replace />
+  // // if (roles.includes('student') || roles.includes('parent')) return <Navigate to="/student" replace />
+  // // return <Navigate to="/dashboard" replace />
+  // If not logged in, allow access to login page
   if (!token) return <Outlet />
-  // if (roles.includes('super_admin'))                         return <Navigate to="/master/dashboard" replace />
-  // if (roles.includes('student') || roles.includes('parent')) return <Navigate to="/student" replace />
-  // return <Navigate to="/dashboard" replace />
+
+  // Redirect logged-in users based on role
   if (roles.includes('student') || roles.includes('parent')) {
-  navigate('/student', { replace: true })
-} else {
-  navigate('/dashboard', { replace: true })
-}
+    return <Navigate to="/student" replace />
+  }
+
+  // super_admin, admin, teacher, staff
+  return <Navigate to="/dashboard" replace />
+
 }
 
 const MasterGuard = () => {
