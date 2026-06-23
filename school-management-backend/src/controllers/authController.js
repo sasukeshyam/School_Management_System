@@ -13,8 +13,23 @@ const masterLogin = async (req, res, next) => {
     const { generateAccessToken, generateRefreshToken, storeRefreshToken } = require('../utils/jwt')
  
     // Find user by email only — across all schools
-    const user = await User.findOne({ email, is_deleted: false, is_active: true })
-    if (!user) return sendError(res, 'Invalid credentials', 401)
+    // const user = await User.findOne({ email, is_deleted: false, is_active: true })
+    // if (!user) return sendError(res, 'Invalid credentials', 401)
+    const user = await User.findOne({
+  email,
+  is_deleted: false,
+  is_active: true,
+}).select('+password_hash');
+
+if (!user || !user.password_hash) {
+  return sendError(res, 'Invalid credentials', 401);
+}
+
+const valid = await bcrypt.compare(password, user.password_hash);
+
+if (!valid) {
+  return sendError(res, 'Invalid credentials', 401);
+}
  
     // Check password
     const valid = await bcrypt.compare(password, user.password_hash)
