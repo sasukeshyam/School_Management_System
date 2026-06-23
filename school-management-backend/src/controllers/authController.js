@@ -1,6 +1,54 @@
 const authService = require('../services/authService');
 const { sendSuccess, sendError } = require('../utils/response');
 
+// ─── Master Login — no school_id required ─────────────────────────────────────
+const masterLogin = async (req, res, next) => {
+  try {
+    const { email, password } = req.body
+    if (!email || !password) return sendError(res, 'Email and password are required', 400)
+ 
+    const User      = require('../models/User')
+    const { UserRole, Role } = require('../models/Role')
+    const bcrypt    = require('bcryptjs')
+    const { generateAccessToken, generateRefreshToken, storeRefreshToken } = require('../utils/jwt')
+ 
+    // Find user by email only — across all schools
+    const user = await User.findOne({ email, is_deleted: false, is_active: true })
+    if (!user) return sendError(res, 'Invalid credentials', 401)
+ 
+    // Check password
+    const valid = await bcrypt.compare(password, user.password_hash)
+    if (!valid) return sendError(res, 'Invalid credentials', 401)
+ 
+    // Get roles — must be super_admin
+    const userRoles = await UserRole.find({ user_id: user._id }).populate('role_id')
+    const roles     = userRoles.map(ur => ur.role_id?.slug).filter(Boolean)
+ 
+    if (!roles.includes('super_admin')) {
+      return sendError(res, 'Access denied. Master Admin only.', 403)
+    }
+ 
+    // Generate tokens
+    const payload = { userId: user._id, schoolId: user.school_id, email: user.email }
+    const accessToken  = generateAccessToken(payload)
+    const refreshToken = generateRefreshToken(payload)
+    await storeRefreshToken(user._id, refreshToken)
+ 
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge:   7 * 24 * 60 * 60 * 1000,
+    })
+ 
+    sendSuccess(res, {
+      user:         { _id: user._id, name: user.name, email: user.email, school_id: user.school_id },
+      roles,
+      access_token: accessToken,
+    }, 'Master login successful')
+  } catch (err) { next(err) }
+}
+
 const login = async (req, res, next) => {
   try {
     const { email, password, school_id } = req.body;
@@ -64,4 +112,4 @@ const me = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { login, refresh, logout, changePassword, me };
+module.exports = { login, masterLogin, refresh, logout, changePassword, me };

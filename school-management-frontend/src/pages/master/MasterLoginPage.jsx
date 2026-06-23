@@ -18,26 +18,25 @@ const schema = z.object({
   password: z.string().min(6, 'Minimum 6 characters'),
 })
 
-// Master school_id stored in env or hardcoded for master admin
-const MASTER_SCHOOL_ID = import.meta.env.VITE_MASTER_SCHOOL_ID || ''
-
 export const MasterLoginPage = () => {
   const [showPass, setShowPass] = useState(false)
-  const setAuth    = useAuthStore(s => s.setAuth)
   const navigate   = useNavigate()
 
   const { register, handleSubmit, formState: { errors } } = useForm({ resolver: zodResolver(schema) })
 
   const mutation = useMutation({
     mutationFn: ({ email, password }) =>
-      api.post('/auth/login', { email, password, school_id: MASTER_SCHOOL_ID }),
+      api.post('/auth/master-login', { email, password }),  // No school_id needed
     onSuccess: ({ data }) => {
       // Verify this is actually a super admin
-      if (!data.data.roles.includes('super_admin')) {
+      if (!data.data.roles?.includes('super_admin')) {
         toast.error('Access denied. Super Admin only.')
         return
       }
-      setAuth(data.data)
+      // Store master token SEPARATELY from school login
+      // so master login does not interfere with school sessions
+      localStorage.setItem('master_token', data.data.accessToken)
+      localStorage.setItem('master_user',  JSON.stringify(data.data.user))
       toast.success('Welcome, Master Admin!')
       navigate('/master/dashboard')
     },

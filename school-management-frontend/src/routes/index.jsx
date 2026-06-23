@@ -70,7 +70,7 @@ const MasterGuard = () => {
   const token = useAuthStore(s => s.accessToken)
   const roles = useAuthStore(s => s.roles)
   if (!token)                         return <Navigate to="/master" replace />
-  if (!roles.includes('super_admin')) return <Navigate to="/dashboard" replace />
+  if (!roles.includes('master')) return <Navigate to="/dashboard" replace />
   return <Outlet />
 }
 
