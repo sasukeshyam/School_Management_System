@@ -21,25 +21,43 @@ const schema = z.object({
 export const MasterLoginPage = () => {
   const [showPass, setShowPass] = useState(false)
   const navigate   = useNavigate()
+  const setAuth = useAuthStore(state => state.setAuth)
 
   const { register, handleSubmit, formState: { errors } } = useForm({ resolver: zodResolver(schema) })
 
   const mutation = useMutation({
     mutationFn: ({ email, password }) =>
       api.post('/auth/master-login', { email, password }),  // No school_id needed
+    // onSuccess: ({ data }) => {
+    //   // Verify this is actually a super admin
+    //   if (!data.data.roles?.includes('super_admin')) {
+    //     toast.error('Access denied. Super Admin only.')
+    //     return
+    //   }
+    //   // Store master token SEPARATELY from school login
+    //   // so master login does not interfere with school sessions
+    //   // localStorage.setItem('master_token', data.data.accessToken)
+    //   localStorage.setItem('master_token', data.data.access_token)
+    //   localStorage.setItem('master_user',  JSON.stringify(data.data.user))
+    //   toast.success('Welcome, Master Admin!')
+    //   navigate('/master/dashboard')
+    // },
     onSuccess: ({ data }) => {
-      // Verify this is actually a super admin
-      if (!data.data.roles?.includes('super_admin')) {
-        toast.error('Access denied. Super Admin only.')
-        return
-      }
-      // Store master token SEPARATELY from school login
-      // so master login does not interfere with school sessions
-      localStorage.setItem('master_token', data.data.accessToken)
-      localStorage.setItem('master_user',  JSON.stringify(data.data.user))
-      toast.success('Welcome, Master Admin!')
-      navigate('/master/dashboard')
-    },
+  if (!data.data.roles?.includes('super_admin')) {
+    toast.error('Access denied. Super Admin only.')
+    return
+  }
+
+  setAuth({
+    user: data.data.user,
+    access_token: data.data.access_token,
+    roles: data.data.roles,
+  })
+
+  toast.success('Welcome, Master Admin!')
+
+  navigate('/master/dashboard')
+},
     onError: e => toast.error(e.response?.data?.message || 'Login failed'),
   })
 
