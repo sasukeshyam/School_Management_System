@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const auditPlugin = require('../utils/baseSchema');
 
 const userSchema = new mongoose.Schema({
-  school_id:      { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true, index: true },
+  school_id:      { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: false, default: null, index: true },
   name:           { type: String, required: true, trim: true },
   email:          { type: String, required: true, lowercase: true, trim: true },
   password_hash:  { type: String, required: true, select: false },

@@ -1,32 +1,11 @@
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 
-
-
-// const api = axios.create({
-//   baseURL: import.meta.env.VITE_API_URL
-//     ? `${import.meta.env.VITE_API_URL}/api/v1`
-//     : '/api/v1',
-//   withCredentials: true,
-//   headers:        { 'Content-Type': 'application/json' },
-// })
-// console.log('VITE_API_URL =>', import.meta.env.VITE_API_URL)
-// const api = axios.create({
-//   baseURL: import.meta.env.VITE_API_URL,
-//   withCredentials: true,
-//   headers: {
-//     'Content-Type': 'application/json',
-//   },
-// })
 const api = axios.create({
-  baseURL: 'https://school-management-system-backend-25a6.onrender.com/api/v1',
+  baseURL:        '/api/v1',
   withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers:        { 'Content-Type': 'application/json' },
 })
-
-console.log('BASE URL =>', api.defaults.baseURL)
 
 // Attach access token
 api.interceptors.request.use((config) => {
@@ -69,7 +48,9 @@ api.interceptors.response.use(
       } catch (err) {
         processQueue(err, null)
         useAuthStore.getState().logout()
-        window.location.href = '/login'
+        // Redirect to correct login page based on role
+        const roles = useAuthStore.getState().roles
+        window.location.href = roles.includes('master') ? '/master' : '/login'
         return Promise.reject(err)
       } finally {
         isRefreshing = false

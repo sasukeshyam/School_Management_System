@@ -1,6 +1,49 @@
 # EduCore School Management System
 ## Complete Setup, Testing & Deployment Guide
 
+
+
+2026-06-24 16:46:18 [info]: MongoDB connected: ac-kno4m9m-shard-00-00.wkp30km.mongodb.net
+2026-06-24 16:46:18 [info]: Starting database seed...
+2026-06-24 16:46:18 [info]: Seeding 121 permissions...
+2026-06-24 16:46:30 [info]: Permissions seeded ✓
+2026-06-24 16:46:31 [info]: School exists: Demo School ✓
+2026-06-24 16:46:31 [info]: Role seeded: super_admin (1 permissions) ✓
+2026-06-24 16:46:31 [info]: Role seeded: admin (122 permissions) ✓
+2026-06-24 16:46:31 [info]: Role seeded: teacher (33 permissions) ✓
+2026-06-24 16:46:31 [info]: Role seeded: student (15 permissions) ✓
+2026-06-24 16:46:32 [info]: Role seeded: parent (10 permissions) ✓
+2026-06-24 16:46:32 [info]: Role seeded: accountant (10 permissions) ✓
+2026-06-24 16:46:32 [info]: Role seeded: librarian (6 permissions) ✓
+2026-06-24 16:46:32 [info]: Role seeded: master (4 permissions) ✓
+2026-06-24 16:46:32 [info]: Super Admin exists ✓
+2026-06-24 16:46:32 [info]: Admin role permissions updated to ALL ✓
+2026-06-24 16:46:33 [info]: Master created: master@educore.com / Master@123456 ✓
+2026-06-24 16:46:33 [info]: 
+═══════════════════════════════════════════════
+2026-06-24 16:46:33 [info]:   EduCore Database Seeded Successfully!
+2026-06-24 16:46:33 [info]: ═══════════════════════════════════════════════
+2026-06-24 16:46:33 [info]:   School ID  : 6a04e1b97a11863cd0e9e6de
+2026-06-24 16:46:33 [info]:   Session ID : 6a10270ea18fbe17cc8b27bc
+2026-06-24 16:46:33 [info]: ───────────────────────────────────────────────
+2026-06-24 16:46:33 [info]:   MASTER (platform level — creates schools)
+2026-06-24 16:46:33 [info]:   URL        : /master
+2026-06-24 16:46:33 [info]:   Email      : master@educore.com
+2026-06-24 16:46:33 [info]:   Password   : Master@123456
+2026-06-24 16:46:33 [info]:   school_id  : none
+2026-06-24 16:46:33 [info]: ───────────────────────────────────────────────
+2026-06-24 16:46:33 [info]:   SUPER ADMIN (school level — full access)
+2026-06-24 16:46:33 [info]:   School ID  : 6a04e1b97a11863cd0e9e6de
+2026-06-24 16:46:33 [info]:   Email      : superadmin@demoschool.com
+2026-06-24 16:46:33 [info]:   Password   : Admin@123456
+2026-06-24 16:46:33 [info]: ───────────────────────────────────────────────
+2026-06-24 16:46:33 [info]:   ADMIN (school level — full access)
+2026-06-24 16:46:33 [info]:   School ID  : 6a04e1b97a11863cd0e9e6de
+2026-06-24 16:46:33 [info]:   Email      : admin@demoschool.com
+2026-06-24 16:46:33 [info]:   Password   : Admin@123456
+2026-06-24 16:46:33 [info]: ═══════════════════════════════════════════════
+
+
 School ID:   6a04e1b97a11863cd0e9e6de
 Session ID:  6a04e1ba7a11863cd0e9e6e1
 Super Admin: superadmin@demoschool.com

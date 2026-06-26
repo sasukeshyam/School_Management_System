@@ -1,18 +1,26 @@
 require('dotenv').config();
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-
 const connectDB = require('./db');
 const { Permission, Role, UserRole } = require('../models/Role');
-const User = require('../models/User');
-const School = require('../models/School');
+const User    = require('../models/User');
+const School  = require('../models/School');
 const Session = require('../models/Session');
-const logger = require('./logger');
+const logger  = require('./logger');
 
 // ─── All Permissions ──────────────────────────────────────────────────────────
 const PERMISSIONS = [
-  // Super Admin
-  { name: 'Super Admin', slug: 'super_admin', module: 'system', action: 'all' },
+  // Super Admin bypass permission
+  {
+    name: 'Super Admin Bypass',
+    slug: 'super_admin_bypass',
+    module: 'system',
+    action: 'all'
+  },
+    
+  // Schools (master level)
+  { name: 'View Schools',   slug: 'schools.view',   module: 'schools', action: 'view'   },
+  { name: 'Create Schools', slug: 'schools.create', module: 'schools', action: 'create' },
+  { name: 'Edit Schools',   slug: 'schools.edit',   module: 'schools', action: 'edit'   },
+  { name: 'Delete Schools', slug: 'schools.delete', module: 'schools', action: 'delete' },
 
   // Dashboard
   { name: 'Admin Dashboard',   slug: 'admin.dashboard',   module: 'dashboard', action: 'view' },
@@ -159,9 +167,9 @@ const PERMISSIONS = [
   { name: 'Grade Assignments',  slug: 'assignments.grade',  module: 'assignments', action: 'grade'  },
 
   // Library
-  { name: 'View Library',   slug: 'library.view',   module: 'library', action: 'view'   },
-  { name: 'Issue Books',    slug: 'library.issue',  module: 'library', action: 'issue'  },
-  { name: 'Return Books',   slug: 'library.return', module: 'library', action: 'return' },
+  { name: 'View Library',  slug: 'library.view',   module: 'library', action: 'view'   },
+  { name: 'Issue Books',   slug: 'library.issue',  module: 'library', action: 'issue'  },
+  { name: 'Return Books',  slug: 'library.return', module: 'library', action: 'return' },
 
   // Events
   { name: 'View Events',   slug: 'events.view',   module: 'events', action: 'view'   },
@@ -191,102 +199,62 @@ const PERMISSIONS = [
   { name: 'Delete Exam Routines', slug: 'exam_routines.delete', module: 'exam_routines', action: 'delete' },
 ];
 
-// ─── System Role Permissions ──────────────────────────────────────────────────
+// ─── School-level Role Permissions ───────────────────────────────────────────
+// master role is handled separately (no school_id)
+// admin uses 'ALL' — gets every permission dynamically
 const ROLE_PERMISSIONS = {
-  super_admin: ['super_admin'],
+  super_admin: ['super_admin_bypass'], // bypass slug checked in authMiddleware
 
-  admin: [
-    'admin.dashboard',
-    'users.view','users.create','users.edit','users.delete',
-    'roles.view',
-    'sessions.view','sessions.create','sessions.edit','sessions.delete',
-    'students.view','students.create','students.edit','students.delete',
-    'parents.view','parents.create','parents.edit','parents.delete',
-    'teachers.view','teachers.create','teachers.edit','teachers.delete',
-    'staff.view','staff.create','staff.edit','staff.delete',
-    'classes.view','classes.create','classes.edit','classes.delete',
-    'sections.view','sections.create','sections.edit','sections.delete',
-    'shifts.view','shifts.create','shifts.edit','shifts.delete',
-    'subjects.view','subjects.create','subjects.edit','subjects.delete',
-    'attendance.view','attendance.mark',
-    'class_routines.view','class_routines.create','class_routines.edit','class_routines.delete',
-    'lesson_plans.view',
-    'study_materials.view',
-    'exam_types.view','exam_types.create','exam_types.edit','exam_types.delete',
-    'mark_grades.view','mark_grades.create','mark_grades.edit','mark_grades.delete',
-    'exams.view','exams.create','exams.edit','exams.delete',
-    'results.view','results.enter','results.approve','results.publish',
-    'admitcard.generate','admitcard.approve','admitcard.issue',
-    'fees.view','fees.create','fees.edit','fees.delete','fees.collect',
-    'transactions.view','transactions.create','transactions.edit',
-    'assignments.view','assignments.create','assignments.edit','assignments.grade',
-    'library.view','library.issue','library.return',
-    'events.view','events.create','events.edit','events.delete',
-    'notifications.view','notifications.create',
-    'admissions.view','admissions.review','admissions.delete',
-    'leaves.view','leaves.edit',
-    'exam_routines.view','exam_routines.create','exam_routines.edit','exam_routines.delete',
-  ],
+  admin: 'ALL', // every permission in DB
 
   teacher: [
-    'teacher.dashboard',
-    'students.view',
-    'attendance.view','attendance.mark',
+    'teacher.dashboard', 'students.view',
+    'attendance.view', 'attendance.mark',
     'class_routines.view',
     'lesson_plans.view','lesson_plans.create','lesson_plans.edit','lesson_plans.delete',
     'study_materials.view','study_materials.create','study_materials.edit','study_materials.delete',
-    'exams.view',
-    'results.view','results.enter',
-    'admitcard.generate',
+    'exams.view', 'results.view', 'results.enter', 'admitcard.generate',
     'assignments.view','assignments.create','assignments.edit','assignments.grade',
-    'library.view',
-    'events.view',
-    'notifications.view','notifications.create',
-    'leaves.view',
-    'exam_routines.view',
+    'library.view', 'events.view',
+    'notifications.view', 'notifications.create',
+    'leaves.view', 'exam_types.view', 'mark_grades.view',
+    'exam_routines.view', 'sections.view', 'shifts.view',
+    'subjects.view', 'classes.view',
   ],
 
   student: [
-    'student.dashboard',
-    'subjects.view',
-    'class_routines.view',
-    'attendance.view',
-    'study_materials.view',
-    'exams.view',
-    'results.view',
-    'admitcard.issue',
-    'fees.view',
-    'assignments.view',
-    'library.view',
-    'events.view',
-    'notifications.view',
-    'leaves.create','leaves.view',
+    'student.dashboard', 'subjects.view', 'class_routines.view',
+    'attendance.view', 'study_materials.view', 'exams.view',
+    'results.view', 'admitcard.issue', 'fees.view',
+    'assignments.view', 'library.view', 'events.view',
+    'notifications.view', 'leaves.create', 'leaves.view',
   ],
 
   parent: [
-    'parent.dashboard',
-    'students.view',
-    'attendance.view',
-    'results.view',
-    'fees.view',
-    'events.view',
-    'notifications.view',
-    'leaves.view','leaves.create',
-    'admitcard.issue',
+    'parent.dashboard', 'students.view', 'attendance.view',
+    'results.view', 'fees.view', 'events.view',
+    'notifications.view', 'leaves.view', 'leaves.create', 'admitcard.issue',
   ],
 
   accountant: [
-    'fees.view','fees.create','fees.edit','fees.collect',
+    'fees.view','fees.create','fees.edit','fees.collect','fees.refund',
     'transactions.view','transactions.create','transactions.edit',
-    'students.view',
-    'admin.dashboard',
+    'students.view', 'admin.dashboard',
   ],
 
   librarian: [
-    'library.view','library.issue','library.return',
-    'students.view','teachers.view','staff.view',
+    'library.view', 'library.issue', 'library.return',
+    'students.view', 'teachers.view', 'staff.view',
   ],
 };
+
+// Master role permissions (platform level — no school_id)
+const MASTER_PERMISSIONS = [
+  'schools.view',
+  'schools.create',
+  'schools.edit',
+  'schools.delete',
+];
 
 // ─── Seed Function ────────────────────────────────────────────────────────────
 const seed = async () => {
@@ -308,12 +276,12 @@ const seed = async () => {
   let school = await School.findOne({ name: 'Demo School' });
   if (!school) {
     school = await School.create({
-      name: 'Demo School',
-      address: 'Ranchi, Jharkhand',
-      phone: '+91-9999999999',
-      email: 'admin@demoschool.com',
-      currency: 'INR',
-      timezone: 'Asia/Kolkata',
+      name:         'Demo School',
+      address:      'Ranchi, Jharkhand',
+      phone:        '+91-9999999999',
+      email:        'admin@demoschool.com',
+      currency:     'INR',
+      timezone:     'Asia/Kolkata',
       subscription: 'premium',
     });
     logger.info(`School created: ${school.name} (${school._id}) ✓`);
@@ -335,17 +303,22 @@ const seed = async () => {
     logger.info(`Session created: ${session.name} ✓`);
   }
 
-  // 4. Seed system roles with permissions
+  // 4. Seed school-level roles
   const allPerms = await Permission.find();
-  const permMap = {};
-  allPerms.forEach((p) => { permMap[p.slug] = p._id; });
+  const permMap  = {};
+  allPerms.forEach(p => { permMap[p.slug] = p._id; });
 
   for (const [roleSlug, permSlugs] of Object.entries(ROLE_PERMISSIONS)) {
-    const permIds = permSlugs.map((s) => permMap[s]).filter(Boolean);
+    const slugList = permSlugs === 'ALL'
+      ? allPerms.map(p => p.slug)
+      : permSlugs;
+
+    const permIds = slugList.map(s => permMap[s]).filter(Boolean);
+
     await Role.findOneAndUpdate(
       { slug: roleSlug, school_id: school._id },
       {
-        name:        roleSlug.charAt(0).toUpperCase() + roleSlug.slice(1).replace('_', ' '),
+        name:        roleSlug.charAt(0).toUpperCase() + roleSlug.slice(1).replace(/_/g, ' '),
         slug:        roleSlug,
         school_id:   school._id,
         is_system:   true,
@@ -356,9 +329,23 @@ const seed = async () => {
     logger.info(`Role seeded: ${roleSlug} (${permIds.length} permissions) ✓`);
   }
 
-  // 5. Create Super Admin user
-  const superAdminRole = await Role.findOne({ slug: 'super_admin', school_id: school._id });
+  // 5. Seed MASTER role — platform level, NO school_id
+  const masterPermIds = MASTER_PERMISSIONS.map(s => permMap[s]).filter(Boolean);
+  await Role.findOneAndUpdate(
+    { slug: 'master', school_id: null },
+    {
+      name:        'Master',
+      slug:        'master',
+      school_id:   null,
+      is_system:   true,
+      permissions: masterPermIds,
+    },
+    { upsert: true, new: true }
+  );
+  logger.info(`Role seeded: master (${masterPermIds.length} permissions) ✓`);
 
+  // 6. Create Super Admin user (school level)
+  const superAdminRole = await Role.findOne({ slug: 'super_admin', school_id: school._id });
   let superAdmin = await User.findOne({ email: 'superadmin@demoschool.com', school_id: school._id });
   if (!superAdmin) {
     superAdmin = await User.create({
@@ -369,20 +356,18 @@ const seed = async () => {
       phone:         '+91-9999999990',
       is_active:     true,
     });
-
     await UserRole.create({
       school_id:   school._id,
       user_id:     superAdmin._id,
       role_id:     superAdminRole._id,
       assigned_by: superAdmin._id,
     });
-
-    logger.info(`Super Admin created: superadmin@demoschool.com / Admin@123456 ✓`);
+    logger.info('Super Admin created: superadmin@demoschool.com / Admin@123456 ✓');
   } else {
     logger.info('Super Admin exists ✓');
   }
 
-  // 6. Create sample Admin user
+  // 7. Create Admin user (school level)
   const adminRole = await Role.findOne({ slug: 'admin', school_id: school._id });
   let adminUser = await User.findOne({ email: 'admin@demoschool.com', school_id: school._id });
   if (!adminUser) {
@@ -400,23 +385,65 @@ const seed = async () => {
       role_id:     adminRole._id,
       assigned_by: superAdmin._id,
     });
-    logger.info(`Admin created: admin@demoschool.com / Admin@123456 ✓`);
+    logger.info('Admin created: admin@demoschool.com / Admin@123456 ✓');
+  } else {
+    await Role.findOneAndUpdate(
+      { slug: 'admin', school_id: school._id },
+      { permissions: allPerms.map(p => p._id) }
+    );
+    logger.info('Admin role permissions updated to ALL ✓');
   }
 
-  logger.info('\n═══════════════════════════════════════');
-  logger.info('  Database seeded successfully!');
-  logger.info('═══════════════════════════════════════');
-  logger.info(`  School ID:   ${school._id}`);
-  logger.info(`  Session ID:  ${session._id}`);
-  logger.info(`  Super Admin: superadmin@demoschool.com`);
-  logger.info(`  Admin:       admin@demoschool.com`);
-  logger.info(`  Password:    Admin@123456`);
-  logger.info('═══════════════════════════════════════\n');
+  // 8. Create MASTER user — NO school_id, platform level
+  const masterRole = await Role.findOne({ slug: 'master', school_id: null });
+  let masterUser = await User.findOne({ email: 'master@educore.com' });
+  if (!masterUser) {
+    masterUser = await User.create({
+      school_id:     null,        // platform level — no school
+      name:          'Master',
+      email:         'master@educore.com',
+      password_hash: 'Master@123456',
+      phone:         '+91-0000000000',
+      is_active:     true,
+    });
+    await UserRole.create({
+      school_id:   null,          // platform level — no school
+      user_id:     masterUser._id,
+      role_id:     masterRole._id,
+      assigned_by: masterUser._id,
+    });
+    logger.info('Master created: master@educore.com / Master@123456 ✓');
+  } else {
+    logger.info('Master exists ✓');
+  }
+
+  logger.info('\n═══════════════════════════════════════════════');
+  logger.info('  EduCore Database Seeded Successfully!');
+  logger.info('═══════════════════════════════════════════════');
+  logger.info(`  School ID  : ${school._id}`);
+  logger.info(`  Session ID : ${session._id}`);
+  logger.info('───────────────────────────────────────────────');
+  logger.info('  MASTER (platform level — creates schools)');
+  logger.info('  URL        : /master');
+  logger.info('  Email      : master@educore.com');
+  logger.info('  Password   : Master@123456');
+  logger.info('  school_id  : none');
+  logger.info('───────────────────────────────────────────────');
+  logger.info('  SUPER ADMIN (school level — full access)');
+  logger.info(`  School ID  : ${school._id}`);
+  logger.info('  Email      : superadmin@demoschool.com');
+  logger.info('  Password   : Admin@123456');
+  logger.info('───────────────────────────────────────────────');
+  logger.info('  ADMIN (school level — full access)');
+  logger.info(`  School ID  : ${school._id}`);
+  logger.info('  Email      : admin@demoschool.com');
+  logger.info('  Password   : Admin@123456');
+  logger.info('═══════════════════════════════════════════════\n');
 
   process.exit(0);
 };
 
-seed().catch((err) => {
+seed().catch(err => {
   logger.error('Seeder failed:', err);
   process.exit(1);
 });

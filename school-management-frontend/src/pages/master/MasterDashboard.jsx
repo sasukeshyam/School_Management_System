@@ -4,7 +4,7 @@ import { Plus, School, Users, Eye, EyeOff, Copy, Check, LogOut, ShieldCheck, Tog
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import api from '@/api/axios'
+import api from '@/api/axios'  // ← uses authStore token automatically
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Card, CardContent, CardHeader, CardTitle, Badge, Avatar, Spinner } from '@/components/ui/index.jsx'
 import { Modal } from '@/components/ui/Modal'
@@ -58,50 +58,49 @@ const CreateSchoolForm = ({ onSuccess, onCancel }) => {
 
   const mutation = useMutation({
     mutationFn: async (data) => {
-  // 1. Create school
-    const schoolRes = await masterAPI.createSchool({
+      // 1. Create school
+      const schoolRes = await masterAPI.createSchool({
         name:         data.school_name,
         address:      data.school_address,
         phone:        data.school_phone,
         email:        data.school_email,
         subscription: data.subscription,
         is_active:    true,
-    })
-    const school = schoolRes.data.data
+      })
+      const school = schoolRes.data.data
 
-    // 2. Create session
-    const year = new Date().getFullYear()
-    await masterAPI.createSession({
+      // 2. Create session for this school
+      const year = new Date().getFullYear()
+      await masterAPI.createSession({
         school_id:  school._id,
         name:       `${year}-${year + 1}`,
         year,
         start_date: new Date(`${year}-04-01`),
         end_date:   new Date(`${year + 1}-03-31`),
         is_current: true,
-    })
+      })
 
-    // 3. Seed roles for this new school by calling backend seed endpoint
-    await api.post('/schools/' + school._id + '/seed-roles')
-
-    // 4. Create admin user
-    const userRes = await masterAPI.createUser({
+      // 3. Create admin user
+      const userRes = await masterAPI.createUser({
         school_id:     school._id,
         name:          data.admin_name,
         email:         data.admin_email,
         phone:         data.admin_phone,
         password_hash: data.admin_password,
         is_active:     true,
-    })
-    const user = userRes.data.data
+      })
+      const user = userRes.data.data
 
-    // 5. Assign admin role
-    const rolesRes = await api.get('/roles?limit=100')
-    const adminRole = rolesRes.data.data.find(r => r.slug === 'admin' && r.school_id === school._id)
-    if (adminRole) {
+      // 4. Get admin role for this school and assign
+      const rolesRes = await masterAPI.getRoles({ limit: 100 })
+      const adminRole = rolesRes.data.data.find(r => r.slug === 'admin' && r.school_id === school._id)
+        || rolesRes.data.data.find(r => r.slug === 'admin')
+
+      if (adminRole) {
         await masterAPI.assignRole({ user_id: user._id, role_id: adminRole._id })
-    }
+      }
 
-    return { school, user, password: data.admin_password }
+      return { school, user, password: data.admin_password }
     },
     onSuccess: ({ school, user, password }) => {
       setGeneratedCreds({ school, user, password })
@@ -299,7 +298,11 @@ export const MasterDashboard = () => {
   const pagination = data?.pagination || {}
   const totalPages = pagination.pages || 1
 
-  const handleLogout = () => { logout(); navigate('/master') }
+  const handleLogout = () => {
+    localStorage.removeItem('master_token')
+    localStorage.removeItem('master_user')
+    navigate('/master')
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -314,6 +317,7 @@ export const MasterDashboard = () => {
           <span className="font-display font-bold text-sm">EduCore Master Admin</span>
         </div>
         <div className="ml-auto flex items-center gap-3">
+
           <div className="text-right hidden sm:block">
             <p className="text-xs font-medium">{user?.name}</p>
             <p className="text-xs text-muted-foreground">Super Admin</p>

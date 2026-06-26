@@ -44,8 +44,8 @@ const masterLogin = async (req, res, next) => {
     const userRoles = await UserRole.find({ user_id: user._id }).populate('role_id')
     const roles     = userRoles.map(ur => ur.role_id?.slug).filter(Boolean)
  
-    if (!roles.includes('super_admin')) {
-      return sendError(res, 'Access denied. Master Admin only.', 403)
+    if (!roles.includes('master')) {
+      return sendError(res, 'Access denied. Master only.', 403)
     }
  
     // Generate tokens

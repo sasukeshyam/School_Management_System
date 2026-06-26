@@ -1,13 +1,13 @@
-const express = require('express')
-const router  = express.Router()
-const School  = require('../models/School')
-const { authenticate, superAdminOnly } = require('../middlewares/authMiddleware')
-const { sendSuccess, sendPaginated } = require('../utils/response')
+const express  = require('express')
+const router   = express.Router()
+const School   = require('../models/School')
+const { authenticate, masterOnly } = require('../middlewares/authMiddleware')
+const { sendSuccess, sendPaginated, sendError } = require('../utils/response')
 const { paginate } = require('../utils/pagination')
 
-router.use(authenticate, superAdminOnly)
+router.use(authenticate, masterOnly)
 
-// Get ALL schools — no school_id filter
+// ─── Get ALL schools (no school_id filter) ────────────────────────────────────
 router.get('/', async (req, res, next) => {
   try {
     const { page, limit, skip, sort } = paginate(req.query)
@@ -27,16 +27,14 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// Get one school by ID
 router.get('/:id', async (req, res, next) => {
   try {
     const school = await School.findById(req.params.id)
-    if (!school) return res.status(404).json({ success: false, message: 'School not found' })
+    if (!school) return sendError(res, 'School not found', 404)
     sendSuccess(res, school)
   } catch (err) { next(err) }
 })
 
-// Create school
 router.post('/', async (req, res, next) => {
   try {
     const school = await School.create({ ...req.body, created_by: req.user._id })
@@ -44,16 +42,14 @@ router.post('/', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// Update school
 router.put('/:id', async (req, res, next) => {
   try {
     const school = await School.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
-    if (!school) return res.status(404).json({ success: false, message: 'School not found' })
+    if (!school) return sendError(res, 'School not found', 404)
     sendSuccess(res, school, 'School updated')
   } catch (err) { next(err) }
 })
 
-// Delete school
 router.delete('/:id', async (req, res, next) => {
   try {
     await School.findByIdAndUpdate(req.params.id, { is_deleted: true, deleted_at: new Date() })
@@ -61,9 +57,11 @@ router.delete('/:id', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// Seed roles for a specific school — called when creating school from Master UI
+// ─── Seed roles for a school ─────────────────────────────────────────────────
+// Called after creating a new school from Master UI
 router.post('/:id/seed-roles', async (req, res, next) => {
   try {
+    const mongoose = require('mongoose')
     const { Permission, Role } = require('../models/Role')
     const schoolId = req.params.id
 
@@ -71,18 +69,22 @@ router.post('/:id/seed-roles', async (req, res, next) => {
     const permMap  = {}
     allPerms.forEach(p => { permMap[p.slug] = p._id })
 
+    // super_admin gets the bypass slug only
+    // admin gets EVERYTHING — all permissions
+    // others get their specific permissions
     const ROLE_PERMS = {
       super_admin: ['super_admin'],
-      admin: allPerms.map(p => p.slug),
+      admin:       allPerms.map(p => p.slug), // ALL permissions
       teacher: [
         'teacher.dashboard','students.view','attendance.view','attendance.mark',
-        'class_routines.view','lesson_plans.view','lesson_plans.create','lesson_plans.edit','lesson_plans.delete',
+        'class_routines.view','lesson_plans.view','lesson_plans.create',
+        'lesson_plans.edit','lesson_plans.delete',
         'study_materials.view','study_materials.create','study_materials.edit','study_materials.delete',
         'exams.view','results.view','results.enter','admitcard.generate',
         'assignments.view','assignments.create','assignments.edit','assignments.grade',
-        'library.view','events.view','notifications.view','notifications.create','leaves.view',
-        'exam_types.view','mark_grades.view','exam_routines.view','sections.view','shifts.view',
-        'subjects.view','classes.view',
+        'library.view','events.view','notifications.view','notifications.create',
+        'leaves.view','exam_types.view','mark_grades.view','exam_routines.view',
+        'sections.view','shifts.view','subjects.view','classes.view',
       ],
       student: [
         'student.dashboard','subjects.view','class_routines.view','attendance.view',
@@ -92,7 +94,8 @@ router.post('/:id/seed-roles', async (req, res, next) => {
       ],
       parent: [
         'parent.dashboard','students.view','attendance.view','results.view',
-        'fees.view','events.view','notifications.view','leaves.view','leaves.create','admitcard.issue',
+        'fees.view','events.view','notifications.view','leaves.view',
+        'leaves.create','admitcard.issue',
       ],
       accountant: [
         'fees.view','fees.create','fees.edit','fees.collect',
@@ -105,12 +108,13 @@ router.post('/:id/seed-roles', async (req, res, next) => {
       ],
     }
 
+    const seeded = []
     for (const [slug, slugs] of Object.entries(ROLE_PERMS)) {
       const permIds = slugs.map(s => permMap[s]).filter(Boolean)
       await Role.findOneAndUpdate(
         { slug, school_id: schoolId },
         {
-          name:        slug.charAt(0).toUpperCase() + slug.slice(1).replace('_', ' '),
+          name:        slug.charAt(0).toUpperCase() + slug.slice(1).replace(/_/g, ' '),
           slug,
           school_id:   schoolId,
           is_system:   true,
@@ -118,9 +122,10 @@ router.post('/:id/seed-roles', async (req, res, next) => {
         },
         { upsert: true, new: true }
       )
+      seeded.push(`${slug} (${permIds.length} permissions)`)
     }
 
-    res.json({ success: true, message: 'Roles seeded for school' })
+    sendSuccess(res, { seeded }, `Roles seeded for school ${schoolId}`)
   } catch (err) { next(err) }
 })
 
