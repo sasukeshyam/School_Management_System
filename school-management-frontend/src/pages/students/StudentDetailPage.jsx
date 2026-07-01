@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Mail, Phone, MapPin, Calendar, BookOpen, DollarSign, ClipboardList } from 'lucide-react'
-import { studentsAPI, attendanceAPI, feeCollectAPI } from '@/api'
+import { studentsAPI, attendanceAPI, feesAPI } from '@/api'
 import { Button } from '@/components/ui/Button'
 import { Card, CardHeader, CardTitle, CardContent, Avatar, Badge, Spinner } from '@/components/ui/index.jsx'
 import { fDate, fCurrency, STATUS_COLORS, fPercent } from '@/utils/format'

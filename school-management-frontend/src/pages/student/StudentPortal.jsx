@@ -9,7 +9,7 @@ import {
 import { useAuthStore } from '@/store/authStore'
 import { useUIStore } from '@/store/uiStore'
 import { useLogout } from '@/hooks/useAuth'
-import { dashboardAPI, attendanceAPI, feeCollectAPI, assignmentsAPI,
+import { dashboardAPI, attendanceAPI, feesAPI, assignmentsAPI,
          classRoutinesAPI, notificationsAPI, marksheetsAPI, eventsAPI } from '@/api'
 import api from '@/api/axios'
 import { Avatar, Badge, Card, CardContent, CardHeader, CardTitle, Spinner } from '@/components/ui/index.jsx'

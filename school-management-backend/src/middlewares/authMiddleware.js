@@ -65,7 +65,7 @@ const permissionGuard = (...requiredPermissions) => async (req, res, next) => {
     req.permissions = permissions;
  
     // Super admin bypass
-    if (permissions.includes('super_admin')) return next();
+    if (permissions.includes('super_admin') || permissions.includes('super_admin_bypass')) return next();
  
     const hasAll = requiredPermissions.every((p) => permissions.includes(p));
     if (!hasAll) {
@@ -81,7 +81,7 @@ const permissionGuard = (...requiredPermissions) => async (req, res, next) => {
 const superAdminOnly = async (req, res, next) => {
   try {
     const permissions = await loadPermissions(req.user._id, req.schoolId);
-    if (!permissions.includes('super_admin_bypass')) {
+    if (!permissions.includes('super_admin_bypass') && !permissions.includes('super_admin')) {
       return sendError(res, 'Super admin access required', 403);
     }
     next();

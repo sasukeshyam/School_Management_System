@@ -81,18 +81,47 @@ export const examsAPI = {
   publishMarksheets: (id)           => api.patch(`/exams/${id}/marksheets/publish`),
 }
 
-// ─── Fees ─────────────────────────────────────────────────────────────────────
-export const feeGroupsAPI  = crud('/fee-groups')
-export const feeTypesAPI   = crud('/fee-types')
-export const feeMastersAPI = crud('/fee-masters')
-export const feeAssignsAPI = crud('/fee-assigns')
-export const transactionsAPI = crud('/transactions')
+// ─────────────────────────────────────────────────────────────
+// Fees
+// ─────────────────────────────────────────────────────────────
 
-export const feeCollectAPI = {
-  bulkAssign:     (data)      => api.post('/fee-collects/bulk-assign', data),
-  collect:        (id, data)  => api.post(`/fee-collects/assign/${id}/collect`, data),
-  studentFees:    (id, params)=> api.get(`/fee-collects/student/${id}`, { params }),
-  report:         (params)    => api.get('/fee-collects/report', { params }),
+export const feesAPI = {
+  // Groups
+  getGroups: (params) => api.get('/fees/groups', { params }),
+  createGroup: (data) => api.post('/fees/groups', data),
+  updateGroup: (id, data) => api.put(`/fees/groups/${id}`, data),
+  deleteGroup: (id) => api.delete(`/fees/groups/${id}`),
+
+  // Types
+  getTypes: (params) => api.get('/fees/types', { params }),
+  createType: (data) => api.post('/fees/types', data),
+  updateType: (id, data) => api.put(`/fees/types/${id}`, data),
+  deleteType: (id) => api.delete(`/fees/types/${id}`),
+
+  // Masters
+  getMasters: (params) => api.get('/fees/masters', { params }),
+  createMaster: (data) => api.post('/fees/masters', data),
+  updateMaster: (id, data) => api.put(`/fees/masters/${id}`, data),
+  deleteMaster: (id) => api.delete(`/fees/masters/${id}`),
+
+  // Assignments
+  getAssignments: (params) => api.get('/fees/assigns', { params }),
+  bulkAssign: (data) => api.post('/fees/assigns/bulk', data),
+
+  // Collection
+  collectFee: (data) => api.post('/fees/collect', data),
+  getPayments: (params) => api.get('/fees/payments', { params }),
+
+  // Reports
+  getReport: (params) => api.get('/fees/report', { params }),
+  updateOverdue: () => api.post('/fees/update-overdue'),
+
+  // Student
+  myFees: () => api.get('/fees/student/my-fees'),
+  myPayments: (params) =>
+    api.get('/fees/student/my-payments', { params }),
+
+  payFee: (data) => api.post('/fees/student/pay', data),
 }
 
 // ─── Assignments ──────────────────────────────────────────────────────────────
