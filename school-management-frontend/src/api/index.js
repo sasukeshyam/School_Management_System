@@ -105,7 +105,8 @@ export const feesAPI = {
   deleteMaster: (id) => api.delete(`/fees/masters/${id}`),
 
   // Assignments
-  getAssignments: (params) => api.get('/fees/assigns', { params }),
+  getAssigns:   (p)    => api.get('/fees/assigns', { params: p }),
+  editAssign:   (id,d) => api.put(`/fees/assigns/${id}`, d),
   bulkAssign: (data) => api.post('/fees/assigns/bulk', data),
 
   // Collection
@@ -117,12 +118,20 @@ export const feesAPI = {
   updateOverdue: () => api.post('/fees/update-overdue'),
 
   // Student
-  myFees: () => api.get('/fees/student/my-fees'),
-  myPayments: (params) =>
-    api.get('/fees/student/my-payments', { params }),
+  myFees:       (p)    => api.get('/fees/student/my-fees', { params: p }),
+  myPayments:   (p)    => api.get('/fees/student/my-payments', { params: p }),
+  payFee:       (d)    => api.post('/fees/student/pay', d),
 
-  payFee: (data) => api.post('/fees/student/pay', data),
+  // Receipt & extras
+  getReceipt:      (id) => api.get(`/fees/receipt/${id}`, { responseType: 'text' }),
+  sendReminders:   ()   => api.post('/fees/send-reminders'),
+  applyDiscount:   (id,data)=> api.post(`/fees/assigns/${id}/discount`, data),
+
+  // Razorpay
+  createOrder:     (data)  => api.post('/fees/razorpay/create-order', data),
+  verifyPayment:   (data)  => api.post('/fees/razorpay/verify', data),
 }
+
 
 // ─── Assignments ──────────────────────────────────────────────────────────────
 export const assignmentsAPI = {

@@ -9,6 +9,12 @@ const api = axios.create({
   headers:        { 'Content-Type': 'application/json' },
 })
 
+// Separate axios instance for refresh
+const refreshApi = axios.create({
+  baseURL: `${API_URL}/api/v1`,
+  withCredentials: true,
+})
+
 // Attach access token
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken
@@ -41,7 +47,8 @@ api.interceptors.response.use(
       original._retry = true
       isRefreshing    = true
       try {
-        const { data } = await axios.post('/api/v1/auth/refresh', {}, { withCredentials: true })
+        // const { data } = await axios.post('/api/v1/auth/refresh', {}, { withCredentials: true })
+        const { data } = await refreshApi.post('/auth/refresh')
         const newToken = data.data.access_token
         useAuthStore.getState().setAccessToken(newToken)
         processQueue(null, newToken)

@@ -22,7 +22,7 @@ const MARKSHEET_STATUS = ['draft', 'pending_approval', 'approved', 'published', 
 const MARK_DISTRIBUTION = ['written', 'practical', 'oral', 'assignment', 'project'];
 
 // ─── Fees ─────────────────────────────────────────────────────────────────────
-const FEE_STATUS = ['unpaid', 'partial', 'paid', 'overdue', 'waived'];
+const FEE_STATUS = ['unpaid', 'partial', 'paid', 'overdue', 'waived', 'carried_forward'];
 const PAYMENT_METHOD = ['cash', 'bank_transfer', 'cheque', 'online', 'upi', 'card'];
 const TRANSACTION_TYPE = ['income', 'expense', 'refund', 'adjustment'];
 

@@ -32,7 +32,7 @@ const feeMasterSchema = new mongoose.Schema({
   session_id:     { type: S, ref: 'Session',   required: true, index: true },
   fee_group_id:   { type: S, ref: 'FeeGroup',  required: true, index: true },
   fee_type_id:    { type: S, ref: 'FeeType',   required: true, index: true },
-  class_setup_id: { type: S, ref: 'ClassSetup',index: true }, // null = all classes
+  class_setup_id: { type: S, ref: 'ClassSetup', index: true },
   amount:         { type: Number, required: true, min: 0 },
   due_date:       { type: Date },
   is_active:      { type: Boolean, default: true },
@@ -42,27 +42,32 @@ const FeeMaster = mongoose.model('FeeMaster', feeMasterSchema);
 
 // ─── FeeAssign ────────────────────────────────────────────────────────────────
 const feeAssignSchema = new mongoose.Schema({
-  school_id:      { type: S, ref: 'School',    required: true, index: true },
-  fee_master_id:  { type: S, ref: 'FeeMaster', required: true, index: true },
-  student_id:     { type: S, ref: 'Student',   required: true, index: true },
-  amount:         { type: Number, required: true, min: 0 },
-  discount:       { type: Number, default: 0 },
-  fine:           { type: Number, default: 0 },
-  due_date:       { type: Date },
-  status:         { type: String, enum: FEE_STATUS, default: 'unpaid', index: true },
+  school_id:           { type: S, ref: 'School',    required: true, index: true },
+  fee_master_id:       { type: S, ref: 'FeeMaster', required: true, index: true },
+  student_id:          { type: S, ref: 'Student',   required: true, index: true },
+  amount:              { type: Number, required: true, min: 0 },
+  discount:            { type: Number, default: 0 },
+  fine:                { type: Number, default: 0 },
+  due_date:            { type: Date },
+  status:              { type: String, enum: FEE_STATUS, default: 'unpaid', index: true },
+  // ─── Carry Forward ────────────────────────────────────────────────────────
+  carry_forward:       { type: Number, default: 0 }, // balance carried from previous period
+  previous_assign_id:  { type: S, ref: 'FeeAssign', default: null }, // which assign this carry came from
+  label:               { type: String, trim: true }, // e.g. "July Installment", "Q1 Fee"
+  invoice_no:          { type: String, trim: true },
 });
-feeAssignSchema.index({ fee_master_id: 1, student_id: 1 }, { unique: true });
-feeAssignSchema.plugin(auditPlugin);
 
-// Virtual: net payable
+feeAssignSchema.index({ fee_master_id: 1, student_id: 1, label: 1 });
+
+// Virtual: net payable = amount - discount + fine + carry_forward
 feeAssignSchema.virtual('net_amount').get(function () {
-  return this.amount - this.discount + this.fine;
+  return this.amount - (this.discount || 0) + (this.fine || 0) + (this.carry_forward || 0);
 });
 
+feeAssignSchema.plugin(auditPlugin);
 const FeeAssign = mongoose.model('FeeAssign', feeAssignSchema);
 
 // ─── FeeCollect ───────────────────────────────────────────────────────────────
-// NOTE: student_id removed — derive via fee_assign_id → FeeAssign.student_id
 const feeCollectSchema = new mongoose.Schema({
   school_id:      { type: S, ref: 'School',    required: true, index: true },
   fee_assign_id:  { type: S, ref: 'FeeAssign', required: true, index: true },
@@ -73,27 +78,34 @@ const feeCollectSchema = new mongoose.Schema({
   receipt_no:     { type: String, trim: true },
   note:           { type: String, trim: true },
   collected_by:   { type: S, ref: 'User' },
+  gateway:        { type: String, enum: ['manual','razorpay','stripe'], default: 'manual' },
+  gateway_order_id: { type: String, trim: true },
 });
 feeCollectSchema.plugin(auditPlugin);
 
 // After saving a payment, update FeeAssign status
 feeCollectSchema.post('save', async function () {
-  const FeeAssign = mongoose.model('FeeAssign');
-  const assign = await FeeAssign.findById(this.fee_assign_id);
-  if (!assign) return;
+  try {
+    const FeeAssign  = mongoose.model('FeeAssign');
+    const FeeCollect = mongoose.model('FeeCollect');
+    const assign = await FeeAssign.findById(this.fee_assign_id);
+    if (!assign) return;
 
-  const FeeCollect = mongoose.model('FeeCollect');
-  const totalPaid = await FeeCollect.aggregate([
-    { $match: { fee_assign_id: this.fee_assign_id } },
-    { $group: { _id: null, total: { $sum: '$amount_paid' } } },
-  ]);
+    const totalPaidAgg = await FeeCollect.aggregate([
+      { $match: { fee_assign_id: this.fee_assign_id } },
+      { $group: { _id: null, total: { $sum: '$amount_paid' } } },
+    ]);
+    const paid      = totalPaidAgg[0]?.total || 0;
+    const netAmount = assign.amount - (assign.discount || 0) + (assign.fine || 0) + (assign.carry_forward || 0);
 
-  const paid = totalPaid[0]?.total || 0;
-  const netAmount = assign.amount - assign.discount + assign.fine;
+    if (paid >= netAmount)      assign.status = 'paid';
+    else if (paid > 0)          assign.status = 'partial';
+    else                        assign.status = 'unpaid';
 
-  if (paid >= netAmount) assign.status = 'paid';
-  else if (paid > 0) assign.status = 'partial';
-  await assign.save();
+    await assign.save();
+  } catch (err) {
+    console.error('FeeCollect post-save error:', err.message);
+  }
 });
 
 const FeeCollect = mongoose.model('FeeCollect', feeCollectSchema);

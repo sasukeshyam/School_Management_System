@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   LayoutDashboard, Clock, ClipboardList, FileText,
   DollarSign, Award, BookMarked, Bell, User, LogOut,
@@ -9,7 +9,7 @@ import {
 import { useAuthStore } from '@/store/authStore'
 import { useUIStore } from '@/store/uiStore'
 import { useLogout } from '@/hooks/useAuth'
-import { dashboardAPI, attendanceAPI, feesAPI, assignmentsAPI,
+import { dashboardAPI, attendanceAPI, assignmentsAPI,
          classRoutinesAPI, notificationsAPI, marksheetsAPI, eventsAPI } from '@/api'
 import api from '@/api/axios'
 import { Avatar, Badge, Card, CardContent, CardHeader, CardTitle, Spinner } from '@/components/ui/index.jsx'
@@ -19,6 +19,8 @@ import { cn } from '@/utils/cn'
 import { ToastContainer } from '@/components/ui/Toast'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { QuizTab } from './QuizTab'
+import { AvatarUpload } from '@/components/shared/AvatarUpload'
+import { FeeTab } from './FeeTab'
 
 const DAYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
 const TODAY = DAYS[new Date().getDay()]
@@ -434,114 +436,6 @@ const AssignmentsTab = ({ student }) => {
 }
 
 // ─── Fees Tab ─────────────────────────────────────────────────────────────────
-const FeesTab = ({ student }) => {
-  const studentId = student?._id
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['student-fees-portal', studentId],
-    queryFn:  () => feeCollectAPI.studentFees(studentId, { limit: 50 }).then(r => r.data),
-    enabled:  !!studentId,
-  })
-
-  const fees = data?.data || []
-  const totalDue  = fees.filter(f => f.status !== 'paid').reduce((s, f) => s + (f.amount - (f.total_paid || 0)), 0)
-  const totalPaid = fees.filter(f => f.status === 'paid').reduce((s, f) => s + f.amount, 0)
-
-  const STATUS_CFG = {
-    paid:    { color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle2 },
-    unpaid:  { color: 'bg-red-100 text-red-700',         icon: AlertCircle  },
-    partial: { color: 'bg-amber-100 text-amber-700',     icon: AlertCircle  },
-    overdue: { color: 'bg-red-100 text-red-700',         icon: AlertCircle  },
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-4">
-        <Card className="border-red-200 dark:border-red-800">
-          <CardContent className="pt-4">
-            <p className="text-xs text-muted-foreground">Total Due</p>
-            <p className="text-2xl font-bold font-display text-red-500 mt-1">{fCurrency(totalDue)}</p>
-            <p className="text-xs text-muted-foreground mt-1">{fees.filter(f => f.status !== 'paid').length} pending</p>
-          </CardContent>
-        </Card>
-        <Card className="border-emerald-200 dark:border-emerald-800">
-          <CardContent className="pt-4">
-            <p className="text-xs text-muted-foreground">Total Paid</p>
-            <p className="text-2xl font-bold font-display text-emerald-600 mt-1">{fCurrency(totalPaid)}</p>
-            <p className="text-xs text-muted-foreground mt-1">{fees.filter(f => f.status === 'paid').length} cleared</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Fee notice */}
-      {totalDue > 0 && (
-        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 flex items-start gap-3">
-          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Payment Due</p>
-            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-              You have outstanding fees of <strong>{fCurrency(totalDue)}</strong>. Please contact the school office or pay at the fee counter.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Fee list */}
-      {isLoading ? (
-        <div className="flex justify-center py-8"><Spinner /></div>
-      ) : fees.length === 0 ? (
-        <Card><CardContent className="text-center py-12 text-muted-foreground text-sm">No fee records found</CardContent></Card>
-      ) : (
-        <div className="space-y-3">
-          {fees.map(fee => {
-            const cfg = STATUS_CFG[fee.status] || STATUS_CFG.unpaid
-            const StatusIcon = cfg.icon
-            return (
-              <Card key={fee._id}>
-                <CardContent className="pt-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <div className={cn('p-2 rounded-lg shrink-0', cfg.color)}>
-                        <StatusIcon className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold">{fee.fee_master_id?.fee_type_id?.name || 'Fee'}</p>
-                        <p className="text-xs text-muted-foreground">{fee.fee_master_id?.fee_group_id?.name}</p>
-                        <p className="text-xs text-muted-foreground">Due: {fDate(fee.due_date)}</p>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-base font-bold">{fCurrency(fee.amount)}</p>
-                      {fee.total_paid > 0 && fee.status !== 'paid' && (
-                        <p className="text-xs text-emerald-600">Paid: {fCurrency(fee.total_paid)}</p>
-                      )}
-                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-md capitalize', cfg.color)}>{fee.status}</span>
-                    </div>
-                  </div>
-
-                  {/* Payment history */}
-                  {fee.payments?.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-border/50 space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">Payment History</p>
-                      {fee.payments.map((p, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">{fDate(p.paid_date)} · {p.payment_method} · {p.receipt_no}</span>
-                          <span className="font-medium text-emerald-600">{fCurrency(p.amount_paid)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Exams & Results Tab ──────────────────────────────────────────────────────
 const ExamsTab = ({ student }) => {
   const classSetupId = student?.class_setup_id?._id || student?.class_setup_id
@@ -691,16 +585,105 @@ const NotificationsTab = () => {
 }
 
 // ─── Profile Tab ──────────────────────────────────────────────────────────────
-const ProfileTab = ({ student, user }) => (
+const ProfileTab = ({ student, user }) => {
+  const fileRef   = useRef(null)
+  const qc        = useQueryClient()
+  const [preview, setPreview] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const avatar   = preview || user?.avatar
+  const initials = (user?.name || 'S').split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2)
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB'); return }
+    // Preview instantly
+    const reader = new FileReader()
+    reader.onloadend = () => setPreview(reader.result)
+    reader.readAsDataURL(file)
+    // Upload
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('avatar', file)
+      const res = await import('@/api/axios').then(m => m.default.post('/users/avatar/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      }))
+      setPreview(res.data.data?.avatar)
+      useAuthStore.getState().setAuth({
+        user:         { ...useAuthStore.getState().user, avatar: res.data.data?.avatar },
+        access_token: useAuthStore.getState().accessToken,
+        roles:        useAuthStore.getState().roles,
+      })
+      toast.success('Profile picture updated!')
+    } catch(err) {
+      toast.error(err.response?.data?.message || 'Upload failed')
+      setPreview(null)
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  const removeAvatar = async () => {
+    try {
+      await import('@/api/axios').then(m => m.default.delete('/users/avatar/remove'))
+      setPreview(null)
+      useAuthStore.getState().setAuth({
+        user:         { ...useAuthStore.getState().user, avatar: null },
+        access_token: useAuthStore.getState().accessToken,
+        roles:        useAuthStore.getState().roles,
+      })
+      toast.success('Profile picture removed')
+    } catch { toast.error('Failed to remove') }
+  }
+
+  return (
   <div className="space-y-4">
     <Card>
       <CardContent className="pt-5">
-        <div className="flex items-center gap-4">
-          <Avatar name={user?.name || ''} size="xl" src={user?.avatar} />
-          <div>
+        <div className="flex flex-col sm:flex-row items-center gap-5">
+          {/* Avatar with upload overlay */}
+          <div className="relative shrink-0">
+            <div className="h-24 w-24 rounded-full border-4 border-background shadow-lg overflow-hidden bg-primary/10 flex items-center justify-center">
+              {avatar
+                ? <img src={avatar} alt={initials} className="h-full w-full object-cover" />
+                : <span className="text-3xl font-bold text-primary">{initials}</span>
+              }
+              {uploading && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full">
+                  <Spinner size="sm" />
+                </div>
+              )}
+            </div>
+            {/* Camera icon button */}
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center shadow-lg hover:bg-primary/90 transition-colors border-2 border-background"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+          </div>
+
+          <div className="text-center sm:text-left">
             <h3 className="font-display font-bold text-xl">{user?.name}</h3>
             <p className="text-sm text-muted-foreground">{user?.email}</p>
             <p className="text-sm text-muted-foreground">{user?.phone || '—'}</p>
+            <div className="flex gap-2 mt-2 justify-center sm:justify-start">
+              <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                className="text-xs text-primary hover:underline">
+                {avatar ? 'Change photo' : 'Upload photo'}
+              </button>
+              {avatar && <>
+                <span className="text-muted-foreground text-xs">·</span>
+                <button onClick={removeAvatar} className="text-xs text-destructive hover:underline">Remove</button>
+              </>}
+            </div>
           </div>
         </div>
       </CardContent>
@@ -746,7 +729,8 @@ const ProfileTab = ({ student, user }) => (
       </Card>
     </div>
   </div>
-)
+  )
+}
 
 // ─── Main Portal ──────────────────────────────────────────────────────────────
 export const StudentPortal = () => {
@@ -781,7 +765,7 @@ export const StudentPortal = () => {
       case 'attendance':    return <AttendanceTab student={student} />
       case 'assignments':   return <AssignmentsTab student={student} />
       case 'exams':         return <ExamsTab student={student} />
-      case 'fees':          return <FeesTab student={student} />
+      case 'fees':          return <FeeTab />
       case 'quiz':          return <QuizTab student={student} />
       case 'notifications': return <NotificationsTab />
       case 'profile':       return <ProfileTab student={student} user={user} />

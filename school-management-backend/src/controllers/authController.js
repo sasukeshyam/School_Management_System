@@ -78,6 +78,7 @@ const login = async (req, res, next) => {
     const result = await authService.login({ email, password, school_id });
 
     // Set refresh token as httpOnly cookie
+    console.log(process.env.NODE_ENV)
     res.cookie('refreshToken', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

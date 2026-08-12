@@ -7,6 +7,7 @@ import api from '@/api/axios'
 import { useAuthStore } from '@/store/authStore'
 import { useUIStore } from '@/store/uiStore'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { AvatarUpload } from '@/components/shared/AvatarUpload'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, Input, Label, Avatar, Badge } from '@/components/ui/index.jsx'
 import { toast } from '@/hooks/useToast'
@@ -33,14 +34,18 @@ const ProfileTab = ({ user, roles }) => {
   })
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4 p-5 rounded-xl border bg-gradient-to-r from-primary/5 to-primary/10">
-        <Avatar name={user?.name || ''} size="xl" src={user?.avatar} />
-        <div>
+      <div className="flex flex-col sm:flex-row items-center gap-6 p-5 rounded-xl border bg-gradient-to-r from-primary/5 to-primary/10">
+        <AvatarUpload size="xl" userName={user?.name} />
+
+        <div className="text-center sm:text-left">
           <h3 className="font-display font-bold text-lg">{user?.name}</h3>
           <p className="text-sm text-muted-foreground">{user?.email}</p>
-          <div className="flex gap-1.5 mt-2 flex-wrap">
+
+          <div className="flex gap-1.5 mt-2 flex-wrap justify-center sm:justify-start">
             {roles.map(r => (
-              <Badge key={r} variant="default" className="text-xs capitalize">{r}</Badge>
+              <Badge key={r} variant="default" className="text-xs capitalize">
+                {r}
+              </Badge>
             ))}
           </div>
         </div>
