@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, GraduationCap, UserCheck, BookOpen, Clock,
   ClipboardList, FileText, DollarSign, Library, Bell, Settings,
   ChevronRight, School, Calendar, Award, UserCog, BarChart3,
-  BookMarked, UserSquare, Layers, PanelLeft, LogOut,PenSquare,
+  BookMarked, UserSquare, Layers, PanelLeft, LogOut, PenSquare, ClipboardCheck,
 } from 'lucide-react'
 import { useLogout } from '@/hooks/useAuth'
 
@@ -17,10 +17,11 @@ const NAV = [
     { to: '/events',       icon: Calendar,        label: 'Events'    },
   ]},
   { label: 'People', items: [
-    { to: '/students',  icon: GraduationCap, label: 'Students',  roles: ['super_admin','admin'] },
-    { to: '/parents',   icon: Users,         label: 'Parents',   roles: ['super_admin','admin'] },
-    { to: '/teachers',  icon: UserCheck,     label: 'Teachers',  roles: ['super_admin','admin'] },
-    { to: '/staff',     icon: UserSquare,    label: 'Staff',     roles: ['super_admin','admin'] },
+    { to: '/students',     icon: GraduationCap, label: 'Students',    roles: ['super_admin','admin'] },
+    { to: '/admissions',   icon: ClipboardCheck,label: 'Admissions',  perm: 'admissions.view'  },
+    { to: '/parents',      icon: Users,         label: 'Parents',     roles: ['super_admin','admin'] },
+    { to: '/teachers',     icon: UserCheck,     label: 'Teachers',    roles: ['super_admin','admin'] },
+    { to: '/staff',        icon: UserSquare,    label: 'Staff',       roles: ['super_admin','admin'] },
   ]},
   { label: 'Academic', items: [
     { to: '/classes',       icon: Layers,        label: 'Classes',    roles: ['super_admin','admin'] },

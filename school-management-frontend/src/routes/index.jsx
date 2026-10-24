@@ -39,6 +39,8 @@ import { QuizzesPage }       from '@/pages/quizzes/QuizzesPage'
 import { QuizBuilderPage }   from '@/pages/quizzes/QuizBuilderPage'
 import { QuizResultsPage }   from '@/pages/quizzes/QuizResultsPage'
 import { NotFoundPage }      from '@/pages/NotFoundPage'
+import { ApplyPage }         from '@/pages/admissions/ApplyPage'
+import { AdmissionsPage }    from '@/pages/admissions/AdmissionsPage'
 
 // ─── Guards ───────────────────────────────────────────────────────────────────
 
@@ -107,6 +109,8 @@ const router = createBrowserRouter([
 
   // ── Root ─────────────────────────────────────────────────────────────────
   { path: '/', element: <Navigate to="/login" replace /> },
+  // ── Public admission form — no auth needed ────────────────────────────────
+  { path: '/apply', element: <ApplyPage /> },
 
   // ── Master Admin panel — separate login, separate auth ────────────────────
   {
@@ -164,6 +168,7 @@ const router = createBrowserRouter([
         { path: '/notifications',       element: <NotificationsPage />},
         { path: '/roles',               element: <RolesPage />        },
         { path: '/settings',            element: <SettingsPage />     },
+        { path: '/admissions',          element: <AdmissionsPage />   },
         { path: '/quizzes',             element: <QuizzesPage />      },
         { path: '/quizzes/:id/builder', element: <QuizBuilderPage />  },
         { path: '/quizzes/:id/results', element: <QuizResultsPage />  },

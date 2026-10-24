@@ -56,6 +56,7 @@ const notificationRoutes  = require('./routes/notificationRoutes');
 const dashboardRoutes     = require('./routes/dashboardRoutes');
 const quizRoutes          = require('./routes/quizRoutes');
 
+
 const app = express();
 
 // ─── Security Middleware ───────────────────────────────────────────────────────
@@ -147,6 +148,7 @@ app.use(`${BASE}/events`,          eventRoutes);
 app.use(`${BASE}/notifications`,   notificationRoutes);
 app.use(`${BASE}/dashboard`,       dashboardRoutes);
 app.use(`${BASE}/quizzes`,         quizRoutes);
+app.use(`${BASE}/admissions`,      admissionRoutes);
 
 // ─── Error Handling ───────────────────────────────────────────────────────────
 app.use(notFound);

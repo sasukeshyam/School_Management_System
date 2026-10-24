@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { dashboardAPI } from '@/api'
+import { dashboardAPI, admissionsAPI } from '@/api'
 import { useAuthStore } from '@/store/authStore'
 import { AdminDashboard }   from './AdminDashboard'
 import { TeacherDashboard } from './TeacherDashboard'
@@ -12,6 +12,11 @@ export const DashboardPage = () => {
   const isTeacher = useAuthStore((s) => s.isTeacher())
   const isStudent = useAuthStore((s) => s.isStudent())
   const isParent  = useAuthStore((s) => s.isParent())
+
+  const { data: admData } = useQuery({
+    queryKey: ['admissions-pending-count'],
+    queryFn:  () => admissionsAPI.getAll({ status: 'pending', limit: 1 }).then(r => r.data.counts?.pending || 0),
+  })
 
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard'],

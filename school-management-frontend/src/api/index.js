@@ -35,9 +35,15 @@ export const studentsAPI = {
 export const parentsAPI    = crud('/parents')
 export const teachersAPI   = crud('/teachers')
 export const staffAPI      = crud('/staff')
+
+// ─── Admissions ───────────────────────────────────────────────────────────────
 export const admissionsAPI = {
-  ...crud('/admissions'),
-  apply: (data) => api.post('/admissions/apply', data),
+  getSchools: ()        => api.get('/admissions/schools'),
+  apply:      (data)    => api.post('/admissions/apply', data),
+  getAll:     (params)  => api.get('/admissions', { params }),
+  getOne:     (id)      => api.get(`/admissions/${id}`),
+  approve:    (id)      => api.put(`/admissions/${id}/approve`),
+  reject:     (id, reason) => api.put(`/admissions/${id}/reject`, { reason }),
 }
 export const leavesAPI = crud('/leaves')
 
@@ -111,6 +117,7 @@ export const feesAPI = {
 
   // Collection
   collectFee: (data) => api.post('/fees/collect', data),
+  // collect: (data) => api.post('/fees/collect', data),
   getPayments: (params) => api.get('/fees/payments', { params }),
 
   // Reports
@@ -131,6 +138,8 @@ export const feesAPI = {
   createOrder:     (data)  => api.post('/fees/razorpay/create-order', data),
   verifyPayment:   (data)  => api.post('/fees/razorpay/verify', data),
 }
+
+
 
 
 // ─── Assignments ──────────────────────────────────────────────────────────────

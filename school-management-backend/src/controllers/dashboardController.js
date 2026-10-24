@@ -6,7 +6,8 @@ const getDashboard = async (req, res, next) => {
     const permissions = req.permissions || [];
     let data;
 
-    if (permissions.includes('super_admin') || permissions.includes('admin.dashboard')) {
+    if (permissions.includes('super_admin') || permissions.includes('super_admin_bypass') || permissions.includes('admin.dashboard')) 
+      {
       data = await dashboardService.getAdminDashboard(req.schoolId);
     } else if (permissions.includes('teacher.dashboard')) {
       data = await dashboardService.getTeacherDashboard(req.user._id, req.schoolId);

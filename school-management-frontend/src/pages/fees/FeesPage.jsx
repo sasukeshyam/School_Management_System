@@ -186,14 +186,33 @@ const CollectPaymentModal = ({ assign, onSuccess, onCancel }) => {
     defaultValues: { amount_paid: '', payment_method: 'cash', transaction_id: '', note: '' }
   })
   const balance = assign?.balance || 0
+  // const mutation = useMutation({
+  //   mutationFn: d => feesAPI.collect({ fee_assign_id: assign._id, ...d, amount_paid: Number(d.amount_paid) }),
+  //   onSuccess: (res) => {
+  //     toast.success(`Payment collected! Receipt: ${res.data.data?.receipt_no}`)
+  //     onSuccess?.()
+  //   },
+  //   onError: e => toast.error(e.response?.data?.message || 'Failed'),
+  // })
   const mutation = useMutation({
-    mutationFn: d => feesAPI.collect({ fee_assign_id: assign._id, ...d, amount_paid: Number(d.amount_paid) }),
-    onSuccess: (res) => {
-      toast.success(`Payment collected! Receipt: ${res.data.data?.receipt_no}`)
-      onSuccess?.()
-    },
-    onError: e => toast.error(e.response?.data?.message || 'Failed'),
-  })
+  mutationFn: d => {
+    console.log('Collecting payment:', assign._id, d) // debug
+    return feesAPI.collectFee({
+      fee_assign_id: assign._id,
+      amount_paid:   Number(d.amount_paid),
+      payment_method: d.payment_method,
+      note:          d.note,
+    })
+  },
+  onSuccess: (res) => {
+    toast.success(`Payment collected! Receipt: ${res.data.data?.receipt_no}`)
+    onSuccess?.()
+  },
+  onError: (e) => {
+    console.error('Collection error:', e) // debug
+    toast.error(e.response?.data?.message || e.message || 'Failed')
+  },
+})
   return (
     <div className="space-y-4">
       {/* Student info */}

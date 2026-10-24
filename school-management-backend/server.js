@@ -43,7 +43,8 @@ const start = async () => {
       logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
     });
   } catch (err) {
-    logger.error('Failed to start server:', err.message);
+    logger.error('Failed to start server:', err);
+    console.error(err.stack);
     process.exit(1);
   }
 };
