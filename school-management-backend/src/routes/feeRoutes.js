@@ -24,16 +24,18 @@ router.put   ('/masters/:id',    permissionGuard('fees.edit'),   ctrl.updateMast
 router.delete('/masters/:id',    permissionGuard('fees.delete'), ctrl.deleteMaster)
 
 // ─── Fee Assignments ──────────────────────────────────────────────────────────
-router.get   ('/assigns',        permissionGuard('fees.view'),   ctrl.getAssignments)
+router.get   ('/assigns',        permissionGuard('fees.collect'),   ctrl.getAssignments)
 router.post  ('/assigns/bulk',   permissionGuard('fees.create'), ctrl.bulkAssign)
 router.put   ('/assigns/:id',     permissionGuard('fees.edit'),   ctrl.editAssignment)
 
 // ─── Fee Collection ───────────────────────────────────────────────────────────
 router.post  ('/collect',        permissionGuard('fees.collect'),ctrl.collectFee)
-router.get   ('/payments',       permissionGuard('fees.view'),   ctrl.getPayments)
+router.get   ('/payments',       permissionGuard('fees.collect'),   ctrl.getPayments)
 
 // ─── Reports ──────────────────────────────────────────────────────────────────
-router.get   ('/report',         permissionGuard('fees.view'),   ctrl.getReport)
+router.get   ('/report',         permissionGuard('fees.collect'),   ctrl.getReport)
+router.get   ('/today',             permissionGuard('fees.collect'), ctrl.getTodaySummary)
+router.get   ('/collection-report',  permissionGuard('fees.collect'), ctrl.getCollectionReport)
 router.post  ('/update-overdue', permissionGuard('fees.edit'),   ctrl.updateOverdue)
 
 // ─── Student routes ───────────────────────────────────────────────────────────

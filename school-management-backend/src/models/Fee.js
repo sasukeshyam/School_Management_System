@@ -58,6 +58,7 @@ const feeAssignSchema = new mongoose.Schema({
 });
 
 feeAssignSchema.index({ fee_master_id: 1, student_id: 1, label: 1 });
+feeAssignSchema.index({ school_id: 1, status: 1, due_date: 1 });
 
 // Virtual: net payable = amount - discount + fine + carry_forward
 feeAssignSchema.virtual('net_amount').get(function () {
@@ -80,7 +81,10 @@ const feeCollectSchema = new mongoose.Schema({
   collected_by:   { type: S, ref: 'User' },
   gateway:        { type: String, enum: ['manual','razorpay','stripe'], default: 'manual' },
   gateway_order_id: { type: String, trim: true },
+  // full = cleared in one payment, partial = balance left, final = cleared the rest after earlier instalments
+  payment_type:   { type: String, enum: ['full', 'partial', 'final'] },
 });
+feeCollectSchema.index({ school_id: 1, paid_date: -1 });
 feeCollectSchema.plugin(auditPlugin);
 
 // After saving a payment, update FeeAssign status

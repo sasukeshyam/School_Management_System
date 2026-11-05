@@ -45,9 +45,6 @@ const deleteMaster = async (req, res, next) => {
 };
 
 // ─── Fee Assignments ──────────────────────────────────────────────────────────
-const getAssignments = async (req, res, next) => {
-  try { const r = await feeService.getAssignments(req.schoolId, req.query); sendPaginated(res, r.data, r.total, r.page, r.limit); } catch(e){next(e)}
-};
 
 const editAssignment = async (req, res, next) => {
   try {
@@ -80,9 +77,6 @@ const collectFee = async (req, res, next) => {
   } catch(e){next(e)}
 };
 
-const getPayments = async (req, res, next) => {
-  try { const r = await feeService.getPayments(req.schoolId, req.query); sendPaginated(res, r.data, r.total, r.page, r.limit); } catch(e){next(e)}
-};
 
 // ─── Report ───────────────────────────────────────────────────────────────────
 const getReport = async (req, res, next) => {
@@ -130,152 +124,59 @@ const payMyFee = async (req, res, next) => {
   } catch(e){next(e)}
 };
 
-
+;
 
 // ─── Razorpay ─────────────────────────────────────────────────────────────────
-// const createRazorpayOrder = async (req, res, next) => {
-//   try {
-//     const Razorpay = require('razorpay')
-//     const { FeeAssign } = require('../models/Fee')
-
-//     const { fee_assign_id } = req.body
-//     const assign = await FeeAssign.findOne({ _id: fee_assign_id, school_id: req.schoolId })
-//     if (!assign) return sendError(res, 'Fee assignment not found', 404)
-//     if (assign.status === 'paid') return sendError(res, 'Already paid', 400)
-
-//     const razorpay = new Razorpay({
-//       key_id:     process.env.RAZORPAY_KEY_ID,
-//       key_secret: process.env.RAZORPAY_KEY_SECRET,
-//     })
-
-//     // Calculate balance
-//     const { FeeCollect } = require('../models/Fee')
-//     const paid = await FeeCollect.aggregate([
-//       { $match: { fee_assign_id: assign._id } },
-//       { $group: { _id: null, total: { $sum: '$amount_paid' } } },
-//     ])
-//     const alreadyPaid = paid[0]?.total || 0
-//     const netAmount   = assign.amount - (assign.discount || 0) + (assign.fine || 0)
-//     const balance     = Math.max(0, netAmount - alreadyPaid)
-
-//     const amount = req.body.amount || balance // allow partial
-//     if (amount > balance) return sendError(res, `Amount exceeds balance of ₹${balance}`, 400)
-
-//     const order = await razorpay.orders.create({
-//       amount:   Math.round(amount * 100), // paise
-//       currency: 'INR',
-//       receipt:  `fee_${fee_assign_id}_${Date.now()}`,
-//       notes:    { fee_assign_id, school_id: req.schoolId },
-//     })
-
-//     sendSuccess(res, {
-//       order_id:   order.id,
-//       amount:     order.amount,
-//       currency:   order.currency,
-//       key_id:     process.env.RAZORPAY_KEY_ID,
-//       fee_assign_id,
-//       student_name: req.user.name,
-//     })
-//  } catch (err) {
-//   console.error(err)
-
-//   return res.status(err.statusCode || 500).json({
-//     success: false,
-//     message:
-//       err.error?.description ||
-//       err.message ||
-//       "Internal Server Error",
-//   })
-// }
 const createRazorpayOrder = async (req, res, next) => {
   try {
-    console.log("BODY:", req.body)
-    console.log("USER:", req.user)
-    console.log("SCHOOL:", req.schoolId)
-
-    const Razorpay = require("razorpay")
-    const { FeeAssign, FeeCollect } = require("../models/Fee")
+    const Razorpay  = require('razorpay')
+    const { FeeAssign, FeeCollect } = require('../models/Fee')
+    const mongoose  = require('mongoose')
 
     const { fee_assign_id } = req.body
+    if (!fee_assign_id) return sendError(res, 'fee_assign_id is required', 400)
 
-    const assign = await FeeAssign.findOne({
-      _id: fee_assign_id,
-      school_id: req.schoolId,
-    })
+    // Find assign — student may belong to any school so use just _id + student check
+    const assign = await FeeAssign.findById(fee_assign_id)
+    if (!assign) return sendError(res, 'Fee assignment not found', 404)
+    if (assign.status === 'paid') return sendError(res, 'Already fully paid', 400)
 
-    console.log("ASSIGN:", assign)
-
-    if (!assign) {
-      return sendError(res, "Fee assignment not found", 404)
-    }
-
+    // Calculate balance
     const paid = await FeeCollect.aggregate([
-      {
-        $match: {
-          fee_assign_id: assign._id,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          total: {
-            $sum: "$amount_paid",
-          },
-        },
-      },
+      { $match: { fee_assign_id: new mongoose.Types.ObjectId(fee_assign_id) } },
+      { $group: { _id: null, total: { $sum: '$amount_paid' } } },
     ])
-
-    console.log("PAID:", paid)
-
     const alreadyPaid = paid[0]?.total || 0
+    const netAmount   = assign.amount - (assign.discount || 0) + (assign.fine || 0)
+    const balance     = Math.max(0, netAmount - alreadyPaid)
 
-    const netAmount =
-      assign.amount -
-      (assign.discount || 0) +
-      (assign.fine || 0)
+    if (balance <= 0) return sendError(res, 'No balance due', 400)
 
-    const balance = Math.max(0, netAmount - alreadyPaid)
-
-    console.log("BALANCE:", balance)
-
-    const amount = req.body.amount || balance
-
-    console.log("REQUESTED:", amount)
+    const amount = Number(req.body.amount) || balance
+    if (amount > balance) return sendError(res, `Amount ₹${amount} exceeds balance ₹${balance}`, 400)
+    if (amount < 1)       return sendError(res, 'Amount must be at least ₹1', 400)
 
     const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
+      key_id:     process.env.RAZORPAY_KEY_ID,
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     })
 
-    console.log("Creating Razorpay order...")
-
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100),
-      currency: "INR",
-      // receipt: `fee_${fee_assign_id}_${Date.now()}`,
-      receipt: `F${fee_assign_id.slice(-8)}${Date.now().toString().slice(-8)}`,
-      notes: {
-        fee_assign_id,
-        school_id: req.schoolId,
-      },
+      amount:   Math.round(amount * 100), // convert to paise
+      currency: 'INR',
+      receipt:  `fee_${Date.now()}`.slice(0, 40),
     })
 
-    console.log("ORDER:", order)
-
-    return sendSuccess(res, {
-      order_id: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      key_id: process.env.RAZORPAY_KEY_ID,
+    sendSuccess(res, {
+      order_id:     order.id,
+      amount:       order.amount,
+      currency:     order.currency,
+      key_id:       process.env.RAZORPAY_KEY_ID,
       fee_assign_id,
-      student_name: req.user.name,
+      student_name: req.user?.name || 'Student',
     })
   } catch (err) {
-    console.error("============== ERROR ==============")
-    console.error(err)
-    console.error(err.stack)
-    console.error("===================================")
-
+    console.error('RAZORPAY ORDER ERROR:', err?.error || err?.message || err)
     next(err)
   }
 }
@@ -350,7 +251,32 @@ const applyDiscount = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+const pageMeta = (r) => ({ total: r.total, page: r.page, limit: r.limit, pages: Math.max(1, Math.ceil(r.total / r.limit)) });
+
+const getAssignments = async (req, res, next) => {
+  try {
+    const r = await feeService.getAssignments(req.schoolId, req.query);
+    res.json({ success: true, data: r.data, pagination: pageMeta(r), summary: r.summary });
+  } catch (e) { next(e); }
+};
+
+const getPayments = async (req, res, next) => {
+  try {
+    const r = await feeService.getPayments(req.schoolId, req.query);
+    res.json({ success: true, data: r.data, pagination: pageMeta(r) });
+  } catch (e) { next(e); }
+};
+
+const getCollectionReport = async (req, res, next) => {
+  try { sendSuccess(res, await feeService.getCollectionReport(req.schoolId, req.query)); } catch (e) { next(e); }
+};
+
+const getTodaySummary = async (req, res, next) => {
+  try { sendSuccess(res, await feeService.getTodaySummary(req.schoolId)); } catch (e) { next(e); }
+};
+
 module.exports = {
+  getCollectionReport, getTodaySummary,
   getGroups, createGroup, updateGroup, deleteGroup,
   getTypes,  createType,  updateType,  deleteType,
   getMasters,createMaster,updateMaster,deleteMaster,
@@ -360,4 +286,4 @@ module.exports = {
   getMyFees, getMyPayments, payMyFee,
   createRazorpayOrder, verifyRazorpayPayment,
   downloadReceipt, sendReminders, applyDiscount,
-};
+}

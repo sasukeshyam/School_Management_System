@@ -3,6 +3,9 @@ const { FeeGroup, FeeType, FeeMaster, FeeAssign, FeeCollect, Transaction } = req
 const { Student } = require('../models/Student');
 const { paginate } = require('../utils/pagination');
 const { v4: uuidv4 } = require('uuid');
+const User   = require('../models/User');
+const School = require('../models/School');
+const { dayString, validTimeZone, escapeRegex, eachDay, eachMonth, assertDayRange, round2 } = require('../utils/feeReportUtils');
 
 const ObjId = (id) => new mongoose.Types.ObjectId(id);
 
@@ -69,11 +72,11 @@ const updateMaster = async (id, data, schoolId) => {
   const master = await FeeMaster.findOneAndUpdate(
     { _id: id, school_id: schoolId }, data, { new: true }
   );
-  // Also update all UNPAID assignments for this master
-  if (data.amount !== undefined || data.due_date !== undefined) {
-    const updateData = {};
-    if (data.amount   !== undefined) updateData.amount   = data.amount;
-    if (data.due_date !== undefined) updateData.due_date = data.due_date;
+  // Auto-sync all UNPAID/OVERDUE assignments — paid ones are NOT touched
+  const updateData = {};
+  if (data.amount   !== undefined) updateData.amount   = data.amount;
+  if (data.due_date !== undefined) updateData.due_date = data.due_date;
+  if (Object.keys(updateData).length > 0) {
     await FeeAssign.updateMany(
       { fee_master_id: id, school_id: schoolId, status: { $in: ['unpaid', 'overdue'] } },
       { $set: updateData }
@@ -81,7 +84,14 @@ const updateMaster = async (id, data, schoolId) => {
   }
   return master;
 };
-const deleteMaster = (id, schoolId) => FeeMaster.findOneAndUpdate({ _id: id, school_id: schoolId }, { is_deleted: true });
+const deleteMaster = async (id, schoolId) => {
+  // Cancel all UNPAID assignments for this master — paid ones stay for records
+  await FeeAssign.updateMany(
+    { fee_master_id: id, school_id: schoolId, status: { $in: ['unpaid', 'overdue'] } },
+    { $set: { status: 'cancelled' } }
+  );
+  return FeeMaster.findOneAndUpdate({ _id: id, school_id: schoolId }, { is_deleted: true });
+};
 
 // ─── Bulk assign fee to students ──────────────────────────────────────────────
 const bulkAssign = async (feeMasterId, schoolId, createdBy, studentIds = null, options = {}) => {
@@ -189,31 +199,155 @@ const editAssignment = async (assignId, data, schoolId) => {
   return assign;
 };
 
-// ─── Get fee assignments ──────────────────────────────────────────────────────
-const getAssignments = async (schoolId, query) => {
-  const { page, limit, skip } = paginate(query);
-  const filter = { school_id: schoolId };
-  if (query.status)        filter.status        = query.status;
-  if (query.student_id)    filter.student_id    = query.student_id;
-  if (query.fee_master_id) filter.fee_master_id = query.fee_master_id;
+// ─── Shared helpers for search & reports ──────────────────────────────────────
+const HIDDEN_FEE_STATUSES = ['cancelled', 'carried_forward'];
 
-  // Filter by class
-  if (query.class_setup_id) {
-    const students = await Student.find({ class_setup_id: query.class_setup_id, school_id: schoolId }).select('_id');
-    filter.student_id = { $in: students.map(s => s._id) };
+const castId = (value, label) => {
+  if (!mongoose.isValidObjectId(value)) {
+    throw Object.assign(new Error(`Invalid ${label}`), { statusCode: 400 });
+  }
+  return ObjId(value);
+};
+
+const getSchoolTz = async (schoolId) => {
+  const school = await School.findById(schoolId).select('timezone').lean();
+  return school?.timezone && validTimeZone(school.timezone) ? school.timezone : 'Asia/Kolkata';
+};
+
+// Student ids matching a free-text search and/or a class. null = no restriction.
+const resolveStudentIds = async (schoolId, { search, class_setup_id }) => {
+  const text = (search || '').trim();
+  if (!text && !class_setup_id) return null;
+
+  const filter = { school_id: schoolId, is_deleted: false };
+  if (class_setup_id) filter.class_setup_id = castId(class_setup_id, 'class_setup_id');
+
+  if (text) {
+    const rx = new RegExp(escapeRegex(text), 'i');
+    const userIds = await User.find({
+      school_id: schoolId,
+      $or: [{ name: rx }, { email: rx }, { phone: rx }],
+    }).distinct('_id');
+    filter.$or = [{ user_id: { $in: userIds } }, { admission_no: rx }, { roll_number: rx }];
+  }
+  return Student.find(filter).distinct('_id');
+};
+
+// Fee-assignment ids for a student / class / search / fee-type filter. null = no restriction.
+const resolveAssignIds = async (schoolId, query) => {
+  const { search, class_setup_id, fee_type_id, student_id } = query;
+  if (!(search || '').trim() && !class_setup_id && !fee_type_id && !student_id) return null;
+
+  const filter = { school_id: schoolId };
+  if (student_id) {
+    filter.student_id = castId(student_id, 'student_id');
+  } else {
+    const studentIds = await resolveStudentIds(schoolId, query);
+    if (studentIds) filter.student_id = { $in: studentIds };
+  }
+  if (fee_type_id) {
+    const masterIds = await FeeMaster.find({
+      school_id: schoolId, fee_type_id: castId(fee_type_id, 'fee_type_id'),
+    }).distinct('_id');
+    filter.fee_master_id = { $in: masterIds };
+  }
+  return FeeAssign.find(filter).distinct('_id');
+};
+
+// Pipeline stages selecting payments by calendar day (in the school's timezone),
+// method, type and optionally student / class / fee type.
+const paymentBase = async (schoolId, query, tz) => {
+  let { from, to } = query;
+  if (from || to) { from = from || to; to = to || from; }
+  assertDayRange(from, to);
+
+  const match = { school_id: ObjId(schoolId) };
+  if (query.payment_method) match.payment_method = String(query.payment_method);
+  if (query.payment_type)   match.payment_type   = String(query.payment_type);
+
+  if (from && to) {
+    // Loose bounds so the paid_date index is used; the exact day test happens below.
+    const lo = new Date(`${from}T00:00:00.000Z`); lo.setUTCDate(lo.getUTCDate() - 1);
+    const hi = new Date(`${to}T00:00:00.000Z`);   hi.setUTCDate(hi.getUTCDate() + 2);
+    match.paid_date = { $gte: lo, $lt: hi };
   }
 
-  const [data, total] = await Promise.all([
+  const assignIds = await resolveAssignIds(schoolId, query);
+  if (assignIds) match.fee_assign_id = { $in: assignIds };
+
+  const stages = [
+    { $match: match },
+    { $addFields: { day: { $dateToString: { format: '%Y-%m-%d', date: '$paid_date', timezone: tz } } } },
+  ];
+  if (from && to) stages.push({ $match: { day: { $gte: from, $lte: to } } });
+  return stages;
+};
+
+// ─── Get fee assignments (search + filters + totals over ALL matches) ─────────
+const getAssignments = async (schoolId, query) => {
+  const { page, limit, skip } = paginate(query);
+
+  const filter = { school_id: ObjId(schoolId) };
+  filter.status = query.status || { $nin: HIDDEN_FEE_STATUSES };
+  if (query.fee_master_id) filter.fee_master_id = castId(query.fee_master_id, 'fee_master_id');
+  if (query.fee_type_id) {
+    const masterIds = await FeeMaster.find({
+      school_id: schoolId, fee_type_id: castId(query.fee_type_id, 'fee_type_id'),
+    }).distinct('_id');
+    filter.fee_master_id = { $in: masterIds };
+  }
+  if (query.student_id) {
+    filter.student_id = castId(query.student_id, 'student_id');
+  } else {
+    const studentIds = await resolveStudentIds(schoolId, query);
+    if (studentIds) filter.student_id = { $in: studentIds };
+  }
+
+  const [rows, total, summaryAgg] = await Promise.all([
     FeeAssign.find(filter)
-      .populate({ path: 'student_id', populate: { path: 'user_id', select: 'name email phone' } })
+      .populate({ path: 'student_id', populate: [
+        { path: 'user_id', select: 'name email phone' },
+        { path: 'class_setup_id', populate: ['class_id', 'section_id'] },
+      ] })
       .populate({ path: 'fee_master_id', populate: ['fee_group_id', 'fee_type_id'] })
-      .sort({ due_date: 1 }).skip(skip).limit(limit),
+      .sort({ due_date: 1, _id: 1 }).skip(skip).limit(limit),
     FeeAssign.countDocuments(filter),
+    FeeAssign.aggregate([
+      { $match: filter },
+      { $addFields: {
+        net: { $add: [
+          { $subtract: ['$amount', { $ifNull: ['$discount', 0] }] },
+          { $ifNull: ['$fine', 0] },
+          { $ifNull: ['$carry_forward', 0] },
+        ] },
+      } },
+      { $lookup: { from: FeeCollect.collection.name, localField: '_id', foreignField: 'fee_assign_id', as: 'pays' } },
+      { $addFields: { paid: { $sum: '$pays.amount_paid' } } },
+      { $group: {
+        _id: null,
+        records:    { $sum: 1 },
+        total:      { $sum: '$net' },
+        paid:       { $sum: '$paid' },
+        balance:    { $sum: { $max: [0, { $subtract: ['$net', '$paid'] }] } },
+        paid_count: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] } },
+      } },
+    ]),
   ]);
 
-  // Attach payments summary
-  const enriched = await Promise.all(data.map(async (a) => {
-    const payments  = await FeeCollect.find({ fee_assign_id: a._id }).sort({ paid_date: -1 });
+  // One query for this page's payments instead of one per row
+  const ids  = rows.map((r) => r._id);
+  const pays = ids.length
+    ? await FeeCollect.find({ fee_assign_id: { $in: ids } }).sort({ paid_date: -1 }).lean()
+    : [];
+  const byAssign = new Map();
+  for (const p of pays) {
+    const key = String(p.fee_assign_id);
+    if (!byAssign.has(key)) byAssign.set(key, []);
+    byAssign.get(key).push(p);
+  }
+
+  const data = rows.map((a) => {
+    const payments  = byAssign.get(String(a._id)) || [];
     const totalPaid = payments.reduce((s, p) => s + p.amount_paid, 0);
     const netAmount = a.amount - (a.discount || 0) + (a.fine || 0) + (a.carry_forward || 0);
     return {
@@ -223,9 +357,19 @@ const getAssignments = async (schoolId, query) => {
       net_amount: netAmount,
       balance:    Math.max(0, netAmount - totalPaid),
     };
-  }));
+  });
 
-  return { data: enriched, total, page, limit };
+  const s = summaryAgg[0] || {};
+  return {
+    data, total, page, limit,
+    summary: {
+      records:       s.records || 0,
+      total_amount:  round2(s.total),
+      total_paid:    round2(s.paid),
+      total_balance: round2(s.balance),
+      paid_count:    s.paid_count || 0,
+    },
+  };
 };
 
 // ─── Collect fee payment ──────────────────────────────────────────────────────
@@ -247,6 +391,9 @@ const collectFee = async (feeAssignId, paymentData, schoolId, collectedBy) => {
   if (amountToPay <= 0)      throw Object.assign(new Error('Amount must be greater than 0'), { statusCode: 400 });
 
   const receipt_no = await genReceiptNo(schoolId);
+  // full = one payment clears the fee, final = clears what was left after earlier
+  // instalments, partial = leaves a balance
+  const paymentType = amountToPay >= balance - 0.001 ? (alreadyPaid > 0 ? 'final' : 'full') : 'partial';
 
   const collection = await FeeCollect.create({
     school_id:      schoolId,
@@ -259,6 +406,7 @@ const collectFee = async (feeAssignId, paymentData, schoolId, collectedBy) => {
     note:           paymentData.note,
     collected_by:   collectedBy,
     gateway:        paymentData.gateway || 'manual',
+    payment_type:   paymentType,
     created_by:     collectedBy,
   });
 
@@ -281,28 +429,129 @@ const collectFee = async (feeAssignId, paymentData, schoolId, collectedBy) => {
   return { collection, assign: updatedAssign, receipt_no, balance: Math.max(0, balance - amountToPay) };
 };
 
-// ─── Payment history (admin) ──────────────────────────────────────────────────
+// ─── Payment history (admin) — date range, method, type, class, search ───────
 const getPayments = async (schoolId, query) => {
   const { page, limit, skip } = paginate(query);
-  const filter = { school_id: schoolId };
-  if (query.student_id) {
-    const assigns = await FeeAssign.find({ student_id: query.student_id, school_id: schoolId }).select('_id');
-    filter.fee_assign_id = { $in: assigns.map(a => a._id) };
-  }
-  if (query.from && query.to) filter.paid_date = { $gte: new Date(query.from), $lte: new Date(query.to) };
-  if (query.payment_method)   filter.payment_method = query.payment_method;
+  const tz   = await getSchoolTz(schoolId);
+  const base = await paymentBase(schoolId, query, tz);
 
-  const [data, total] = await Promise.all([
-    FeeCollect.find(filter)
-      .populate({ path: 'fee_assign_id', populate: [
-        { path: 'student_id', populate: { path: 'user_id', select: 'name email' } },
-        { path: 'fee_master_id', populate: ['fee_group_id', 'fee_type_id'] },
-      ]})
-      .populate('collected_by', 'name')
-      .sort({ paid_date: -1 }).skip(skip).limit(limit),
-    FeeCollect.countDocuments(filter),
+  const [rows, counted] = await Promise.all([
+    FeeCollect.aggregate([...base, { $sort: { paid_date: -1, _id: -1 } }, { $skip: skip }, { $limit: limit }]),
+    FeeCollect.aggregate([...base, { $count: 'n' }]),
   ]);
-  return { data, total, page, limit };
+
+  const data = await FeeCollect.populate(rows, [
+    { path: 'fee_assign_id', populate: [
+      { path: 'student_id', populate: [
+        { path: 'user_id', select: 'name email' },
+        { path: 'class_setup_id', populate: ['class_id', 'section_id'] },
+      ] },
+      { path: 'fee_master_id', populate: ['fee_group_id', 'fee_type_id'] },
+    ] },
+    { path: 'collected_by', select: 'name' },
+  ]);
+
+  return { data, total: counted[0]?.n || 0, page, limit };
+};
+
+// ─── Collection report: totals, method/type split, day- or month-wise timeline ─
+const getCollectionReport = async (schoolId, query) => {
+  const tz      = await getSchoolTz(schoolId);
+  const groupBy = query.group_by === 'month' ? 'month' : 'day';
+
+  const today = dayString(new Date(), tz);
+  const from  = query.from || query.to || today;
+  const to    = query.to   || query.from || today;
+
+  const base    = await paymentBase(schoolId, { ...query, from, to }, tz);
+  const keyExpr = groupBy === 'month' ? { $substrBytes: ['$day', 0, 7] } : '$day';
+
+  const [r] = await FeeCollect.aggregate([
+    ...base,
+    { $facet: {
+      totals: [{ $group: { _id: null, total: { $sum: '$amount_paid' }, count: { $sum: 1 } } }],
+      by_method: [
+        { $group: { _id: '$payment_method', total: { $sum: '$amount_paid' }, count: { $sum: 1 } } },
+        { $sort: { total: -1 } },
+      ],
+      by_type: [
+        { $group: { _id: { $ifNull: ['$payment_type', 'unspecified'] }, total: { $sum: '$amount_paid' }, count: { $sum: 1 } } },
+        { $sort: { total: -1 } },
+      ],
+      timeline: [
+        { $group: { _id: { key: keyExpr, method: '$payment_method' }, total: { $sum: '$amount_paid' }, count: { $sum: 1 } } },
+      ],
+    } },
+  ]);
+
+  // Fold (bucket, method) rows into one row per bucket: { key, total, count, cash, upi, ... }
+  const rows = new Map();
+  for (const t of r.timeline) {
+    const key    = t._id.key;
+    const method = t._id.method || 'other';
+    const row    = rows.get(key) || { key, total: 0, count: 0 };
+    row.total += t.total;
+    row.count += t.count;
+    row[method] = round2((row[method] || 0) + t.total);
+    rows.set(key, row);
+  }
+  // Include days/months with no collection so gaps are visible
+  const keys = groupBy === 'month' ? eachMonth(from, to) : eachDay(from, to);
+  const timeline = keys
+    ? keys.map((key) => {
+        const row = rows.get(key);
+        return row ? { ...row, total: round2(row.total) } : { key, total: 0, count: 0 };
+      })
+    : [...rows.values()].sort((a, b) => a.key.localeCompare(b.key)).map((row) => ({ ...row, total: round2(row.total) }));
+
+  const t = r.totals[0] || { total: 0, count: 0 };
+  return {
+    range:     { from, to, group_by: groupBy, timezone: tz },
+    totals:    { total: round2(t.total), count: t.count, average: t.count ? round2(t.total / t.count) : 0 },
+    by_method: r.by_method.map((m) => ({ method: m._id, total: round2(m.total), count: m.count })),
+    by_type:   r.by_type.map((m) => ({ type: m._id, total: round2(m.total), count: m.count })),
+    timeline,
+  };
+};
+
+// ─── Today's collection (school's local date) with yesterday / month-to-date ──
+const totalsFor = async (schoolId, from, to, tz) => {
+  const base = await paymentBase(schoolId, { from, to }, tz);
+  const [r] = await FeeCollect.aggregate([
+    ...base,
+    { $facet: {
+      totals: [{ $group: { _id: null, total: { $sum: '$amount_paid' }, count: { $sum: 1 } } }],
+      by_method: [
+        { $group: { _id: '$payment_method', total: { $sum: '$amount_paid' }, count: { $sum: 1 } } },
+        { $sort: { total: -1 } },
+      ],
+    } },
+  ]);
+  return {
+    total:     round2(r.totals[0]?.total),
+    count:     r.totals[0]?.count || 0,
+    by_method: r.by_method.map((m) => ({ method: m._id, total: round2(m.total), count: m.count })),
+  };
+};
+
+const getTodaySummary = async (schoolId) => {
+  const tz        = await getSchoolTz(schoolId);
+  const now       = new Date();
+  const date      = dayString(now, tz);
+  const yesterday = dayString(new Date(now.getTime() - 86400000), tz);
+  const monthFrom = `${date.slice(0, 7)}-01`;
+
+  const [today, prev, month] = await Promise.all([
+    totalsFor(schoolId, date, date, tz),
+    totalsFor(schoolId, yesterday, yesterday, tz),
+    totalsFor(schoolId, monthFrom, date, tz),
+  ]);
+
+  return {
+    date, timezone: tz, today,
+    yesterday: { total: prev.total,  count: prev.count },
+    month:     { total: month.total, count: month.count },
+  };
 };
 
 // ─── Fee Report ───────────────────────────────────────────────────────────────
@@ -344,7 +593,7 @@ const updateOverdue = async (schoolId) => {
 const getStudentFees = async (studentId, schoolId, query) => {
   const { page, limit, skip } = paginate(query);
   const filter = { student_id: studentId, school_id: schoolId };
-  if (query.status) filter.status = query.status;
+  filter.status = query.status || { $nin: HIDDEN_FEE_STATUSES };
 
   const [assigns, total, summaryAgg] = await Promise.all([
     FeeAssign.find(filter)
@@ -352,7 +601,7 @@ const getStudentFees = async (studentId, schoolId, query) => {
       .sort({ due_date: 1 }).skip(skip).limit(limit),
     FeeAssign.countDocuments(filter),
     FeeAssign.aggregate([
-      { $match: { student_id: ObjId(studentId), school_id: ObjId(schoolId) } },
+      { $match: { student_id: ObjId(studentId), school_id: ObjId(schoolId), status: { $nin: HIDDEN_FEE_STATUSES } } },
       { $group: {
         _id:            null,
         total_amount:   { $sum: { $add: ['$amount', '$carry_forward'] } },
@@ -403,5 +652,6 @@ module.exports = {
   bulkAssign, getAssignments, editAssignment,
   collectFee, getPayments,
   getFeeReport, updateOverdue,
+  getCollectionReport, getTodaySummary,
   getStudentFees, getStudentPayments,
 };

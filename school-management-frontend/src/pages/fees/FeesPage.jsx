@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import {
   Plus, DollarSign, CreditCard, BarChart3, Trash2, Pencil,
   CheckCircle2, AlertCircle, Clock, XCircle, Receipt, Users,
-  TrendingUp, ChevronRight, Search
+  TrendingUp, ChevronRight, Search, CalendarDays
 } from 'lucide-react'
 import { feesAPI, classSetupsAPI, sessionsAPI } from '@/api'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -18,6 +18,7 @@ import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { fCurrency, fDate, fDateTime } from '@/utils/format'
 import { cn } from '@/utils/cn'
 import { toast } from '@/hooks/useToast'
+import { CollectionReportTab, TodayCollectionCard, PaidViaCell, useDebouncedValue } from './FeeCollectionReports'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
@@ -29,6 +30,7 @@ const TABS = [
   { label: 'Fee Masters', icon: Receipt     },
   { label: 'Collection',  icon: CheckCircle2},
   { label: 'Report',      icon: BarChart3   },
+  { label: 'Collection Report', icon: CalendarDays },
 ]
 
 const STATUS_CFG = {
@@ -186,33 +188,14 @@ const CollectPaymentModal = ({ assign, onSuccess, onCancel }) => {
     defaultValues: { amount_paid: '', payment_method: 'cash', transaction_id: '', note: '' }
   })
   const balance = assign?.balance || 0
-  // const mutation = useMutation({
-  //   mutationFn: d => feesAPI.collect({ fee_assign_id: assign._id, ...d, amount_paid: Number(d.amount_paid) }),
-  //   onSuccess: (res) => {
-  //     toast.success(`Payment collected! Receipt: ${res.data.data?.receipt_no}`)
-  //     onSuccess?.()
-  //   },
-  //   onError: e => toast.error(e.response?.data?.message || 'Failed'),
-  // })
   const mutation = useMutation({
-  mutationFn: d => {
-    console.log('Collecting payment:', assign._id, d) // debug
-    return feesAPI.collectFee({
-      fee_assign_id: assign._id,
-      amount_paid:   Number(d.amount_paid),
-      payment_method: d.payment_method,
-      note:          d.note,
-    })
-  },
-  onSuccess: (res) => {
-    toast.success(`Payment collected! Receipt: ${res.data.data?.receipt_no}`)
-    onSuccess?.()
-  },
-  onError: (e) => {
-    console.error('Collection error:', e) // debug
-    toast.error(e.response?.data?.message || e.message || 'Failed')
-  },
-})
+    mutationFn: d => feesAPI.collectFee({ fee_assign_id: assign._id, ...d, amount_paid: Number(d.amount_paid) }),
+    onSuccess: (res) => {
+      toast.success(`Payment collected! Receipt: ${res.data.data?.receipt_no}`)
+      onSuccess?.()
+    },
+    onError: e => toast.error(e.response?.data?.message || 'Failed'),
+  })
   return (
     <div className="space-y-4">
       {/* Student info */}
@@ -277,6 +260,7 @@ const CollectPaymentModal = ({ assign, onSuccess, onCancel }) => {
     </div>
   )
 }
+
 
 // ─── Edit Fee Assignment Modal ─────────────────────────────────────────────────
 const EditAssignmentModal = ({ assign, onSuccess, onCancel }) => {
@@ -359,46 +343,65 @@ const EditAssignmentModal = ({ assign, onSuccess, onCancel }) => {
 // ─── Collection Tab ───────────────────────────────────────────────────────────
 const CollectionTab = () => {
   const qc = useQueryClient()
-  const [classFilter,   setClassFilter]  = useState('')
-  const [statusFilter,  setStatus]       = useState('')
-  const [collecting,    setCollecting]   = useState(null)
+  const [searchText,    setSearchText]    = useState('')
+  const search = useDebouncedValue(searchText)
+  const [classFilter,   setClassFilter]   = useState('')
+  const [typeFilter,    setTypeFilter]    = useState('')
+  const [statusFilter,  setStatus]        = useState('')
+  const [collecting,    setCollecting]    = useState(null)
   const [editingAssign, setEditingAssign] = useState(null)
-  const [page,          setPage]         = useState(1)
+  const [page,          setPage]          = useState(1)
 
   const { data: classes } = useQuery({
     queryKey: ['class-setups-all'],
-    queryFn:  () => classSetupsAPI.getAll({ limit: 100 }).then(r => r.data.data)
+    queryFn:  () => classSetupsAPI.getAll({ limit: 100 }).then(r => r.data.data),
+  })
+  const { data: feeTypes } = useQuery({
+    queryKey: ['fee-types-all'],
+    queryFn:  () => feesAPI.getTypes({ limit: 100 }).then(r => r.data.data),
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['fee-assigns', page, classFilter, statusFilter],
+    queryKey: ['fee-assigns', page, search, classFilter, typeFilter, statusFilter],
     queryFn:  () => feesAPI.getAssigns({
       page, limit: 15,
-      status:     statusFilter  || undefined,
-      class_setup_id: classFilter || undefined,
+      search:         search       || undefined,
+      class_setup_id: classFilter  || undefined,
+      fee_type_id:    typeFilter   || undefined,
+      status:         statusFilter || undefined,
     }).then(r => r.data),
   })
 
   const assigns    = data?.data       || []
   const pagination = data?.pagination || {}
+  const summary    = data?.summary
+  const filtersActive = !!(searchText || classFilter || typeFilter || statusFilter)
 
-  // Summary stats
-  const total       = assigns.length
-  const totalAmt    = assigns.reduce((s, a) => s + (a.net_amount || a.amount || 0), 0)
-  const totalPaid   = assigns.reduce((s, a) => s + (a.total_paid || 0), 0)
-  const totalBal    = assigns.reduce((s, a) => s + (a.balance || 0), 0)
-  const paidCount   = assigns.filter(a => a.status === 'paid').length
+  const clearFilters = () => { setSearchText(''); setClassFilter(''); setTypeFilter(''); setStatus(''); setPage(1) }
+  const refresh = () => {
+    qc.invalidateQueries(['fee-assigns'])
+    qc.invalidateQueries(['fee-today'])
+    qc.invalidateQueries(['fee-collection-report'])
+    qc.invalidateQueries(['fee-collection-payments'])
+  }
+
+  const selectCls = 'h-9 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
   const columns = [
-    { header: 'Student', cell: r => (
-      <div className="flex items-center gap-2.5">
-        <Avatar name={r.student_id?.user_id?.name || ''} size="sm" />
-        <div>
-          <p className="text-sm font-medium">{r.student_id?.user_id?.name}</p>
-          <p className="text-xs text-muted-foreground">{r.student_id?.admission_no || r.student_id?.roll_number}</p>
+    { header: 'Student', cell: r => {
+      const s   = r.student_id
+      const cls = `${s?.class_setup_id?.class_id?.name || ''} ${s?.class_setup_id?.section_id?.name || ''}`.trim()
+      const meta = [cls, s?.admission_no && `Adm ${s.admission_no}`, s?.roll_number && `Roll ${s.roll_number}`].filter(Boolean).join(' · ')
+      return (
+        <div className="flex items-center gap-2.5">
+          <Avatar name={s?.user_id?.name || ''} size="sm" />
+          <div>
+            <p className="text-sm font-medium">{s?.user_id?.name}</p>
+            <p className="text-xs text-muted-foreground">{meta}</p>
+          </div>
         </div>
-      </div>
-    )},
+      )
+    }},
     { header: 'Fee', cell: r => (
       <div>
         <p className="text-sm font-medium">{r.fee_master_id?.fee_type_id?.name}</p>
@@ -413,6 +416,7 @@ const CollectionTab = () => {
     { header: 'Total',   cell: r => <p className="text-sm font-semibold">{fCurrency(r.net_amount || r.amount)}</p> },
     { header: 'Paid',    cell: r => <p className="text-sm text-emerald-600 font-medium">{fCurrency(r.total_paid || 0)}</p> },
     { header: 'Balance', cell: r => <p className={cn('text-sm font-medium', r.balance > 0 ? 'text-red-500' : 'text-emerald-600')}>{fCurrency(r.balance || 0)}</p> },
+    { header: 'Paid Via', cell: r => <PaidViaCell row={r} /> },
     { header: 'Status',  cell: r => {
       const cfg = STATUS_CFG[r.status] || STATUS_CFG.unpaid
       return (
@@ -440,50 +444,60 @@ const CollectionTab = () => {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
+      {/* Search + filters */}
       <div className="flex gap-3 flex-wrap items-center">
-        <select value={classFilter} onChange={e => { setClassFilter(e.target.value); setPage(1) }}
-          className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        <div className="relative flex-1 min-w-64">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input placeholder="Search name, admission no, roll no, phone or email…" className="pl-8"
+            value={searchText} onChange={e => { setSearchText(e.target.value); setPage(1) }} />
+        </div>
+        <select value={classFilter} onChange={e => { setClassFilter(e.target.value); setPage(1) }} className={selectCls}>
           <option value="">All Classes</option>
-          {(classes || []).map(c => (
-            <option key={c._id} value={c._id}>{c.class_id?.name} {c.section_id?.name}</option>
-          ))}
+          {(classes || []).map(c => <option key={c._id} value={c._id}>{c.class_id?.name} {c.section_id?.name}</option>)}
         </select>
-        <select value={statusFilter} onChange={e => { setStatus(e.target.value); setPage(1) }}
-          className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1) }} className={selectCls}>
+          <option value="">All Fee Types</option>
+          {(feeTypes || []).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => { setStatus(e.target.value); setPage(1) }} className={selectCls}>
           <option value="">All Status</option>
           <option value="unpaid">Unpaid</option>
           <option value="partial">Partial</option>
           <option value="paid">Paid</option>
           <option value="overdue">Overdue</option>
         </select>
+        {filtersActive && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
         <Button variant="outline" size="sm" onClick={() =>
-          feesAPI.updateOverdue().then(() => { toast.success('Overdue status updated'); qc.invalidateQueries(['fee-assigns']) })
+          feesAPI.updateOverdue().then(() => { toast.success('Overdue status updated'); refresh() })
         }>
           Update Overdue
         </Button>
       </div>
 
-      {/* Summary cards */}
-      {assigns.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: 'Total Students', value: total,              color: 'text-primary'     },
-            { label: 'Collected',      value: fCurrency(totalPaid), color: 'text-emerald-600' },
-            { label: 'Pending',        value: fCurrency(totalBal),  color: 'text-red-500'     },
-            { label: 'Paid Count',     value: `${paidCount}/${total}`, color: 'text-amber-500'},
-          ].map(s => (
-            <Card key={s.label}>
-              <CardContent className="pt-3 pb-3">
-                <p className={cn('text-lg font-bold font-display', s.color)}>{s.value}</p>
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      {/* Totals across ALL matching records, not just this page */}
+      {summary && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Fee records', value: summary.records,                  color: 'text-primary'     },
+              { label: 'Total fees',  value: fCurrency(summary.total_amount),  color: 'text-foreground'  },
+              { label: 'Collected',   value: fCurrency(summary.total_paid),    color: 'text-emerald-600' },
+              { label: 'Pending',     value: fCurrency(summary.total_balance), color: 'text-red-500'     },
+            ].map(s => (
+              <Card key={s.label}>
+                <CardContent className="pt-3 pb-3">
+                  <p className={cn('text-lg font-bold font-display', s.color)}>{s.value}</p>
+                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Totals cover all {summary.records} matching records, not only the rows on this page.
+          </p>
+        </>
       )}
 
-      {/* Table */}
       <Card><CardContent className="pt-5">
         <DataTable
           columns={columns}
@@ -495,27 +509,25 @@ const CollectionTab = () => {
           isLoading={isLoading}
           onPageChange={setPage}
           emptyIcon={CreditCard}
-          emptyTitle="No fee assignments"
-          emptyDescription="Select a class or assign fees from Fee Masters tab"
+          emptyTitle={filtersActive ? 'No fees match your search' : 'No fee assignments'}
+          emptyDescription={filtersActive ? 'Try a different name, number or filter' : 'Assign fees from the Fee Masters tab'}
         />
       </CardContent></Card>
 
       {/* Collect Payment Modal */}
-      <Modal open={!!collecting} onClose={() => setCollecting(null)}
-        title="Collect Payment" size="md">
+      <Modal open={!!collecting} onClose={() => setCollecting(null)} title="Collect Payment" size="md">
         {collecting && <CollectPaymentModal
           assign={collecting}
-          onSuccess={() => { setCollecting(null); qc.invalidateQueries(['fee-assigns']) }}
+          onSuccess={() => { setCollecting(null); refresh() }}
           onCancel={() => setCollecting(null)}
         />}
       </Modal>
 
       {/* Edit Assignment Modal */}
-      <Modal open={!!editingAssign} onClose={() => setEditingAssign(null)}
-        title="Edit Fee Assignment" size="md">
+      <Modal open={!!editingAssign} onClose={() => setEditingAssign(null)} title="Edit Fee Assignment" size="md">
         {editingAssign && <EditAssignmentModal
           assign={editingAssign}
-          onSuccess={() => { setEditingAssign(null); qc.invalidateQueries(['fee-assigns']) }}
+          onSuccess={() => { setEditingAssign(null); refresh() }}
           onCancel={() => setEditingAssign(null)}
         />}
       </Modal>
@@ -698,6 +710,7 @@ const ReportTab = () => {
   )
 }
 
+
 // ─── Generate Installment Modal ───────────────────────────────────────────────
 // Admin generates a partial/installment fee for a whole class
 const GenerateInstallmentModal = ({ onSuccess, onCancel }) => {
@@ -813,7 +826,7 @@ export const FeesPage = () => {
   const [search,   setSearch]  = useState('')
   const [showForm, setShowForm]= useState(false)
   const [editing,  setEditing] = useState(null)
-  const [deleting, setDeleting]= useState(null)
+  const [deleting,     setDeleting]    = useState(null)
   const [showInstallment, setInstallment] = useState(false)
 
   const { data: groupsData, isLoading: loadingGroups } = useQuery({
@@ -921,6 +934,9 @@ export const FeesPage = () => {
         }
       />
 
+      {/* Today's collection — shown on every Fees tab */}
+      <TodayCollectionCard />
+
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit mb-5 flex-wrap">
         {TABS.map((t, i) => (
@@ -973,6 +989,9 @@ export const FeesPage = () => {
 
       {/* Tab 4 — Report */}
       {tab === 4 && <ReportTab />}
+
+      {/* Tab 5 — Collection report (day / week / month / custom range) */}
+      {tab === 5 && <CollectionReportTab />}
 
       {/* Create/Edit Modal */}
       <Modal open={showForm} onClose={() => { setShowForm(false); setEditing(null) }}
