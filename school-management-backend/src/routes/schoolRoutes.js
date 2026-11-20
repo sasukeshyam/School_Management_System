@@ -1,9 +1,102 @@
 const express  = require('express')
 const router   = express.Router()
 const School   = require('../models/School')
-const { authenticate, masterOnly } = require('../middlewares/authMiddleware')
+const { authenticate, masterOnly, permissionGuard } = require('../middlewares/authMiddleware')
+const { uploadImage, cloudinary } = require('../config/cloudinary')
+const { publicIdFromUrl } = require('../utils/cloudinaryUrl')
 const { sendSuccess, sendPaginated, sendError } = require('../utils/response')
 const { paginate } = require('../utils/pagination')
+
+
+ 
+// ─── The logged-in user's OWN school ─────────────────────────────────────────
+// Any school user may read it (receipt headers need it); only admins may edit.
+// 'roles.edit' is held by admin / super_admin, so it is used as the admin-level check.
+const PROFILE_FIELDS = 'name address phone email website logo tagline registration_no established_year currency timezone'
+const LOGO_FOLDER = 'school_mgmt/school-logos'
+ 
+const destroyLogo = async (url) => {
+  const id = publicIdFromUrl(url, LOGO_FOLDER)
+  if (id) await cloudinary.uploader.destroy(id).catch(() => {})
+}
+ 
+const logoUpload = (req, res, next) =>
+  uploadImage('school-logos').single('logo')(req, res, (err) => {
+    if (!err) return next()
+    sendError(res, err.code === 'LIMIT_FILE_SIZE' ? 'Logo must be 2 MB or smaller' : (err.message || 'Upload failed'), 400)
+  })
+ 
+router.get('/me', authenticate, async (req, res, next) => {
+  try {
+    if (!req.schoolId) return sendError(res, 'No school is linked to this account', 404)
+    const school = await School.findById(req.schoolId).select(PROFILE_FIELDS).lean()
+    if (!school) return sendError(res, 'School not found', 404)
+    sendSuccess(res, school)
+  } catch (err) { next(err) }
+})
+ 
+router.put('/me', authenticate, permissionGuard('roles.edit'), async (req, res, next) => {
+  try {
+    if (!req.schoolId) return sendError(res, 'No school is linked to this account', 404)
+    const b = req.body || {}
+    const $set = {}, $unset = {}
+ 
+    if (b.name !== undefined) {
+      if (!String(b.name).trim()) return sendError(res, 'School name cannot be empty', 400)
+      $set.name = String(b.name).trim()
+    }
+    for (const k of ['address', 'phone', 'email', 'website', 'tagline', 'registration_no']) {
+      if (b[k] !== undefined) $set[k] = String(b[k]).trim()
+    }
+    if (b.established_year !== undefined) {
+      if (b.established_year === '' || b.established_year === null) {
+        $unset.established_year = ''
+      } else {
+        const y = Number(b.established_year)
+        if (!Number.isInteger(y) || y < 1800 || y > new Date().getFullYear() + 1) {
+          return sendError(res, 'Established year must be a valid year', 400)
+        }
+        $set.established_year = y
+      }
+    }
+ 
+    const update = {}
+    if (Object.keys($set).length)   update.$set = $set
+    if (Object.keys($unset).length) update.$unset = $unset
+    if (!Object.keys(update).length) return sendError(res, 'Nothing to update', 400)
+ 
+    const school = await School.findByIdAndUpdate(req.schoolId, update, { new: true, runValidators: true })
+      .select(PROFILE_FIELDS).lean()
+    if (!school) return sendError(res, 'School not found', 404)
+    sendSuccess(res, school, 'School profile updated')
+  } catch (err) { next(err) }
+})
+ 
+router.post('/me/logo', authenticate, permissionGuard('roles.edit'), logoUpload, async (req, res, next) => {
+  try {
+    if (!req.file) return sendError(res, 'No image uploaded (the field name must be "logo")', 400)
+    const school = await School.findById(req.schoolId)
+    if (!school) { await destroyLogo(req.file.path); return sendError(res, 'School not found', 404) }
+    const previous = school.logo
+    school.logo = req.file.path
+    await school.save({ validateBeforeSave: false })
+    await destroyLogo(previous)
+    sendSuccess(res, { logo: school.logo }, 'Logo updated')
+  } catch (err) { next(err) }
+})
+ 
+router.delete('/me/logo', authenticate, permissionGuard('roles.edit'), async (req, res, next) => {
+  try {
+    const school = await School.findById(req.schoolId)
+    if (!school) return sendError(res, 'School not found', 404)
+    const previous = school.logo
+    school.logo = undefined
+    await school.save({ validateBeforeSave: false })
+    await destroyLogo(previous)
+    sendSuccess(res, { logo: null }, 'Logo removed')
+  } catch (err) { next(err) }
+})
+
 
 router.use(authenticate, masterOnly)
 

@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, Input, Label, Avatar, Badge }
 import { toast } from '@/hooks/useToast'
 import { cn } from '@/utils/cn'
 import { fDate } from '@/utils/format'
+import { SchoolProfileTab } from './SchoolProfileTab'
 
 const TABS = [
   { id: 'profile',       label: 'My Profile',    icon: User   },
@@ -339,7 +340,8 @@ export const SettingsPage = () => {
             <CardContent>
               {activeTab === 'profile'       && <ProfileTab user={user} roles={roles} />}
               {activeTab === 'password'      && <PasswordTab />}
-              {activeTab === 'school'        && <SchoolTab schoolId={user?.school_id} />}
+              {/* {activeTab === 'school'        && <SchoolTab schoolId={user?.school_id} />} */}
+              {activeTab === 'school'        && <SchoolProfileTab />}
               {activeTab === 'appearance'    && <AppearanceTab />}
               {activeTab === 'notifications' && <NotificationsTab />}
             </CardContent>

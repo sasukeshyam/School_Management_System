@@ -19,4 +19,17 @@ const upload = (folder) => multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
-module.exports = { cloudinary, upload };
+// Images only (logos): jpg / png / webp, max 2 MB
+const uploadImage = (folder) => multer({
+  storage: new CloudinaryStorage({
+    cloudinary,
+    params: { folder: `school_mgmt/${folder}`, allowed_formats: ['jpg', 'jpeg', 'png', 'webp'] },
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, cb) =>
+    /^image\/(jpe?g|png|webp)$/.test(file.mimetype)
+      ? cb(null, true)
+      : cb(new Error('Logo must be a JPG, PNG or WEBP image')),
+});
+
+module.exports = { cloudinary, upload, uploadImage };
